@@ -50,6 +50,12 @@ class SpinnerActivityIndicatorView: UIView {
         addSubview(imageView)
         isHidden = true
         backgroundColor = UIColor.clear
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalTo: widthAnchor),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+        ])
     }
 
     required init?(coder: NSCoder) {

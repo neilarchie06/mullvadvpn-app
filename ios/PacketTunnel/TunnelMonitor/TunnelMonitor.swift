@@ -25,6 +25,7 @@ final class TunnelMonitor {
     private var lastError: Pinger.Error?
     private var isStarted = false
     private var isPinging = false
+    private var isConnectionEstablished = false
 
     private var logger = Logger(label: "TunnelMonitor")
     private var timer: DispatchSourceTimer?
@@ -85,6 +86,7 @@ final class TunnelMonitor {
         firstAttemptDate = Date()
         lastAttemptDate = firstAttemptDate
         lastError = nil
+        isConnectionEstablished = false
 
         let newPathMonitor = NWPathMonitor()
         newPathMonitor.pathUpdateHandler = { [weak self] path in
@@ -106,6 +108,7 @@ final class TunnelMonitor {
         firstAttemptDate = nil
         lastAttemptDate = nil
         lastError = nil
+        isConnectionEstablished = false
 
         pathMonitor?.cancel()
         pathMonitor = nil
@@ -188,14 +191,14 @@ final class TunnelMonitor {
             return
         }
 
-        if newNetworkBytesReceived > oldNetworkBytesReceived {
+        if newNetworkBytesReceived > oldNetworkBytesReceived, !isConnectionEstablished {
+            // Mark connection as established.
+            isConnectionEstablished = true
+
             // Tell delegate that connection is established.
             delegateQueue.async {
                 self.delegate?.tunnelMonitorDidDetermineConnectionEstablished(self)
             }
-
-            // Stop the tunnel monitor.
-            stopNoQueue(forRestart: false)
 
             return
         }

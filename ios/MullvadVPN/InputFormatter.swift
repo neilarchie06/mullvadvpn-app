@@ -39,14 +39,11 @@ class InputFormatter: NSObject {
 
     init(
         allowedInput: AllowedInput = .numerical,
-        groupSeparator: GroupSeparator = .space,
-        string: String = ""
+        groupSeparator: GroupSeparator = .space
     ) {
         super.init()
         self.allowedInput = allowedInput
         self.groupSeparator = groupSeparator
-
-        replace(with: string)
     }
 
     /// Replace the currently held value with the given string

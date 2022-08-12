@@ -17,27 +17,20 @@ final class Pinger {
     private var sequenceNumber: UInt16 = 0
     private var socket: CFSocket?
 
-    private let address: IPv4Address
-    private let interfaceName: String?
-
     private let logger = Logger(label: "Pinger")
     private let stateLock = NSRecursiveLock()
-    private var timer: DispatchSourceTimer?
-
-    init(address: IPv4Address, interfaceName: String?) {
-        self.address = address
-        self.interfaceName = interfaceName
-    }
 
     deinit {
-        stop()
+        closeSocket()
     }
 
-    func start(delay: DispatchTimeInterval, repeating repeatInterval: DispatchTimeInterval) throws {
+    /// Open socket and optionally bind it to the given interface.
+    /// When called multiple times in a row, makes sure to clo
+    func openSocket(bindTo interfaceName: String?) throws {
         stateLock.lock()
         defer { stateLock.unlock() }
 
-        stop()
+        closeSocket()
 
         guard let newSocket = CFSocketCreate(
             kCFAllocatorDefault,
@@ -56,7 +49,11 @@ final class Pinger {
             CFSocketSetSocketFlags(newSocket, flags | kCFSocketCloseOnInvalidate)
         }
 
-        try bindSocket(newSocket)
+        if let interfaceName = interfaceName {
+            try bindSocket(newSocket, to: interfaceName)
+        } else {
+            logger.debug("Interface is not specified.")
+        }
 
         guard let runLoop = CFSocketCreateRunLoopSource(kCFAllocatorDefault, newSocket, 0) else {
             throw Error.createRunLoop
@@ -64,37 +61,27 @@ final class Pinger {
 
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoop, .defaultMode)
 
-        let newTimer = DispatchSource.makeTimerSource()
-        newTimer.setEventHandler { [weak self] in
-            self?.send()
-        }
-
         socket = newSocket
-        timer = newTimer
-
-        newTimer.schedule(wallDeadline: .now() + delay, repeating: repeatInterval)
-        newTimer.resume()
     }
 
-    func stop() {
+    func closeSocket() {
         stateLock.lock()
         defer { stateLock.unlock() }
 
         if let socket = socket {
             CFSocketInvalidate(socket)
+
+            self.socket = nil
         }
-
-        socket = nil
-
-        timer?.cancel()
-        timer = nil
     }
 
-    private func send() {
+    /// Send ping packet to the given address.
+    /// Returns number of bytes sent on success, or -1 on failure.
+    func send(to address: IPv4Address) throws -> Int {
         stateLock.lock()
         guard let socket = socket else {
             stateLock.unlock()
-            return
+            throw Error.closedSocket
         }
         stateLock.unlock()
 
@@ -127,9 +114,13 @@ final class Pinger {
             }
         }
 
-        if bytesSent == -1 {
-            logger.debug("Failed to send echo (errno: \(errno)).")
+        guard bytesSent != -1 else {
+            let errorCode = errno
+            logger.debug("Failed to send packet (errno: \(errorCode)).")
+            throw Error.sendPacket(errorCode)
         }
+
+        return bytesSent
     }
 
     private func nextSequenceNumber() -> UInt16 {
@@ -143,12 +134,7 @@ final class Pinger {
         return nextSequenceNumber
     }
 
-    private func bindSocket(_ socket: CFSocket) throws {
-        guard let interfaceName = interfaceName else {
-            logger.debug("Interface is not specified.")
-            return
-        }
-
+    private func bindSocket(_ socket: CFSocket, to interfaceName: String) throws {
         var index = if_nametoindex(interfaceName)
         guard index > 0 else {
             throw Error.mapInterfaceNameToIndex(errno)
@@ -165,11 +151,9 @@ final class Pinger {
         )
 
         if result == -1 {
-            logger
-                .error(
-                    "Failed to bind socket to \"\(interfaceName)\" (index: \(index), errno: \(errno))."
-                )
-
+            logger.error(
+                "Failed to bind socket to \"\(interfaceName)\" (index: \(index), errno: \(errno))."
+            )
             throw Error.bindSocket(errno)
         }
     }
@@ -228,6 +212,12 @@ extension Pinger {
         /// Failure to create a runloop for socket.
         case createRunLoop
 
+        /// Failure to send a packet due to socket being closed.
+        case closedSocket
+
+        /// Failure to send packet. Contains the `errno`.
+        case sendPacket(Int32)
+
         var errorDescription: String? {
             switch self {
             case .createSocket:
@@ -238,6 +228,10 @@ extension Pinger {
                 return "Failure to bind socket to interface."
             case .createRunLoop:
                 return "Failure to create run loop for socket."
+            case .closedSocket:
+                return "Socket is closed."
+            case let .sendPacket(code):
+                return "Failure to send packet (errno: \(code))."
             }
         }
     }

@@ -17,15 +17,19 @@ final class TunnelMonitor {
     private let delegateQueue: DispatchQueue
 
     private var address: IPv4Address?
-    private var pinger: Pinger?
+    private let pinger = Pinger()
     private var pathMonitor: NWPathMonitor?
+
+    private var isConnectionEstablished = false
+    private var networkBytesSent: UInt64 = 0
     private var networkBytesReceived: UInt64 = 0
+
     private var firstAttemptDate: Date?
     private var lastAttemptDate: Date?
     private var lastError: Pinger.Error?
+
     private var isStarted = false
     private var isPinging = false
-    private var isConnectionEstablished = false
 
     private var logger = Logger(label: "TunnelMonitor")
     private var timer: DispatchSourceTimer?
@@ -82,6 +86,7 @@ final class TunnelMonitor {
 
         isStarted = true
         address = pingAddress
+        networkBytesSent = 0
         networkBytesReceived = 0
         firstAttemptDate = Date()
         lastAttemptDate = firstAttemptDate
@@ -118,25 +123,18 @@ final class TunnelMonitor {
     }
 
     private func startPinging(address: IPv4Address) throws {
-        let newPinger = Pinger(address: address, interfaceName: adapter.interfaceName)
+        try pinger.openSocket(bindTo: adapter.interfaceName)
 
-        try newPinger.start(
-            delay: TunnelMonitorConfiguration.pingStartDelay,
-            repeating: TunnelMonitorConfiguration.pingInterval
-        )
-
-        pinger = newPinger
         isPinging = true
     }
 
     private func stopPinging() {
-        pinger?.stop()
-        pinger = nil
+        pinger.closeSocket()
 
         isPinging = false
     }
 
-    private func setWgStatsTimer() {
+    private func setWgStatsTimer(interval: DispatchTimeInterval) {
         // Cancel existing timer.
         cancelWgStatsTimer()
 
@@ -147,7 +145,7 @@ final class TunnelMonitor {
         }
         timer?.schedule(
             wallDeadline: .now(),
-            repeating: TunnelMonitorConfiguration.wgStatsQueryInterval
+            repeating: interval
         )
         timer?.resume()
 
@@ -191,10 +189,7 @@ final class TunnelMonitor {
             return
         }
 
-        if newNetworkBytesReceived > oldNetworkBytesReceived, !isConnectionEstablished {
-            // Mark connection as established.
-            isConnectionEstablished = true
-
+        if newNetworkBytesReceived > oldNetworkBytesReceived {
             // Tell delegate that connection is established.
             delegateQueue.async {
                 self.delegate?.tunnelMonitorDidDetermineConnectionEstablished(self)
@@ -239,7 +234,7 @@ final class TunnelMonitor {
                 lastAttemptDate = firstAttemptDate
 
                 // Start WG stats timer.
-                setWgStatsTimer()
+                setWgStatsTimer(interval: TunnelMonitorConfiguration.wgStatsQueryInterval)
 
                 delegateQueue.async {
                     self.delegate?.tunnelMonitor(

@@ -25,10 +25,6 @@ struct TunnelStatus: Equatable, CustomStringConvertible {
             s += "unreachable"
         }
 
-        if let connectingDate = packetTunnelStatus.connectingDate {
-            s += ", started connecting at \(connectingDate.logFormatDate())"
-        }
-
         return s
     }
 

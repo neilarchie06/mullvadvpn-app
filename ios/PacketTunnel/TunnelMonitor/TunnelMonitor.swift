@@ -11,7 +11,26 @@ import Logging
 import NetworkExtension
 import WireGuardKit
 
+/// Number of seconds to wait between sending ICMP packets.
+private let secondsPerPing: TimeInterval = 3
+
+/// Timeout for waiting on receiving traffic after sending the first ICMP packet.
+/// The connection is considered lost once this timeout is exceeded.
+private let pingTimeout: TimeInterval = 15
+
+/// Timeout for inbound or outbound traffic when monitoring established connection.
+private let trafficTimeout: TimeInterval = 120
+
+/// Timeout for waiting on inbound traffic after an increase in outbound traffic is being
+/// detected.
+private let receiveBytesTimeout: TimeInterval = 5
+
+/// Interval for checking connectivity status.
+private let connectivityCheckInterval: TimeInterval = 1
+
 final class TunnelMonitor {
+    private var state: State = .initialized
+
     private let adapter: WireGuardAdapter
     private let internalQueue = DispatchQueue(label: "TunnelMonitor")
     private let delegateQueue: DispatchQueue
@@ -19,20 +38,12 @@ final class TunnelMonitor {
     private var address: IPv4Address?
     private let pinger = Pinger()
     private var pathMonitor: NWPathMonitor?
+    private var timer: DispatchSourceTimer?
 
-    private var isConnectionEstablished = false
-    private var networkBytesSent: UInt64 = 0
-    private var networkBytesReceived: UInt64 = 0
-
-    private var firstAttemptDate: Date?
-    private var lastAttemptDate: Date?
-    private var lastError: Pinger.Error?
-
-    private var isStarted = false
-    private var isPinging = false
+    private var initialPingTimestamp: Date?
+    private var lastPingTimestamp: Date?
 
     private var logger = Logger(label: "TunnelMonitor")
-    private var timer: DispatchSourceTimer?
 
     private weak var _delegate: TunnelMonitorDelegate?
     weak var delegate: TunnelMonitorDelegate? {
@@ -48,19 +59,13 @@ final class TunnelMonitor {
         }
     }
 
-    var startDate: Date? {
-        return internalQueue.sync {
-            return firstAttemptDate
-        }
-    }
-
     init(queue: DispatchQueue, adapter: WireGuardAdapter) {
         delegateQueue = queue
         self.adapter = adapter
     }
 
     deinit {
-        stopNoQueue(forRestart: false)
+        stopNoQueue()
     }
 
     func start(address: IPv4Address) {
@@ -71,213 +76,275 @@ final class TunnelMonitor {
 
     func stop() {
         internalQueue.async {
-            self.stopNoQueue(forRestart: false)
+            self.stopNoQueue()
         }
     }
+
+    // MARK: - Private
 
     private func startNoQueue(address pingAddress: IPv4Address) {
-        if isStarted {
-            logger.debug("Restart tunnel monitor with address: \(pingAddress).")
+        if case .initialized = state {
+            logger.debug("Start with address: \(pingAddress).")
         } else {
-            logger.debug("Start tunnel monitor with address: \(pingAddress).")
+            stopNoQueue(forRestart: true)
+            logger.debug("Restart with address: \(pingAddress)")
         }
 
-        stopNoQueue(forRestart: true)
-
-        isStarted = true
         address = pingAddress
-        networkBytesSent = 0
-        networkBytesReceived = 0
-        firstAttemptDate = Date()
-        lastAttemptDate = firstAttemptDate
-        lastError = nil
-        isConnectionEstablished = false
 
-        let newPathMonitor = NWPathMonitor()
-        newPathMonitor.pathUpdateHandler = { [weak self] path in
+        let pathMonitor = NWPathMonitor()
+        pathMonitor.pathUpdateHandler = { [weak self] path in
             self?.handleNetworkPathUpdate(path)
         }
-        newPathMonitor.start(queue: internalQueue)
-        pathMonitor = newPathMonitor
+        pathMonitor.start(queue: internalQueue)
+        self.pathMonitor = pathMonitor
 
-        handleNetworkPathUpdate(newPathMonitor.currentPath)
+        if isNetworkPathReachable(pathMonitor.currentPath) {
+            logger.debug("Start monitoring connection.")
+
+            startMonitoring()
+        } else {
+            logger.debug("Wait for network to become reachable before starting monitoring.")
+
+            state = .waitingConnectivity
+        }
     }
 
-    private func stopNoQueue(forRestart: Bool) {
-        if isStarted, !forRestart {
+    private func stopNoQueue(forRestart: Bool = false) {
+        if case .initialized = state {
+            return
+        }
+
+        if !forRestart {
             logger.debug("Stop tunnel monitor.")
         }
 
-        isStarted = false
         address = nil
-        firstAttemptDate = nil
-        lastAttemptDate = nil
-        lastError = nil
-        isConnectionEstablished = false
 
         pathMonitor?.cancel()
         pathMonitor = nil
 
-        cancelWgStatsTimer()
-        stopPinging()
+        stopMonitoring()
+
+        state = .initialized
     }
 
-    private func startPinging(address: IPv4Address) throws {
-        try pinger.openSocket(bindTo: adapter.interfaceName)
-
-        isPinging = true
-    }
-
-    private func stopPinging() {
-        pinger.closeSocket()
-
-        isPinging = false
-    }
-
-    private func setWgStatsTimer(interval: DispatchTimeInterval) {
-        // Cancel existing timer.
-        cancelWgStatsTimer()
-
-        // Create new timer.
-        timer = DispatchSource.makeTimerSource(queue: internalQueue)
-        timer?.setEventHandler { [weak self] in
-            self?.onWgStatsTimer()
-        }
-        timer?.schedule(
-            wallDeadline: .now(),
-            repeating: interval
-        )
-        timer?.resume()
-
-        logger.debug("Set WG stats timer.")
-    }
-
-    private func cancelWgStatsTimer() {
-        timer?.cancel()
-        timer = nil
-    }
-
-    private func onWgStatsTimer() {
-        adapter.getRuntimeConfiguration { [weak self] str in
-            guard let self = self else { return }
-
-            self.internalQueue.async {
-                self.handleWgStatsUpdate(string: str)
-            }
-        }
-    }
-
-    private func handleWgStatsUpdate(string: String?) {
-        guard let string = string else {
-            logger.debug("Received no runtime configuration from WireGuard adapter.")
+    private func checkConnectivity() {
+        guard let newStats = getStats() else {
             return
         }
 
-        guard let newNetworkBytesReceived = Self.parseNetworkBytesReceived(from: string) else {
-            logger.debug("Failed to parse rx_bytes from runtime configuration.")
-            return
-        }
+        let now = Date()
+        let wasConnecting = state.isConnecting
 
-        let oldNetworkBytesReceived = networkBytesReceived
-        networkBytesReceived = newNetworkBytesReceived
+        /* switch state {
+         case let .connected(receiveDate, transmitDate, stats):
+             logger
+                 .debug(
+                     "OLD: RX: \(stats.bytesReceived) TX: \(stats.bytesSent) | NEW: RX: \(newStats.bytesReceived) TX: \(newStats.bytesSent)"
+                 )
 
-        if newNetworkBytesReceived < oldNetworkBytesReceived {
-            logger
-                .debug(
-                    "Stats was reset? newNetworkBytesReceived = \(newNetworkBytesReceived), oldNetworkBytesReceived = \(oldNetworkBytesReceived)"
-                )
-            return
-        }
+         case let .connecting(startDate, transmitDate, stats):
+             logger
+                 .debug(
+                     "OLD: RX: \(stats.bytesReceived) TX: \(stats.bytesSent) | NEW: RX: \(newStats.bytesReceived) TX: \(newStats.bytesSent)"
+                 )
 
-        if newNetworkBytesReceived > oldNetworkBytesReceived {
-            // Tell delegate that connection is established.
-            delegateQueue.async {
-                self.delegate?.tunnelMonitorDidDetermineConnectionEstablished(self)
+         default:
+             break
+         } */
+
+        if state.update(now: now, newStats: newStats) {
+            if wasConnecting, state.isConnected {
+                sendDelegateConnectionEstablished()
             }
 
-            return
-        }
+            resetPingStats()
+        } else if isPingTimedOut(now: now, timeout: pingTimeout) {
+            logger.debug("Ping timeout.")
+            resetPingStats()
 
-        if let nextAttemptDate = lastAttemptDate?
-            .addingTimeInterval(TunnelMonitorConfiguration.connectionTimeout),
-            nextAttemptDate <= Date()
-        {
-            // Reset the last recovery attempt date.
-            lastAttemptDate = nextAttemptDate
+            stopConnectivityCheckTimer()
 
-            // Reset last error.
-            lastError = nil
+            sendDelegateShouldHandleConnectionRecovery { [weak self] in
+                guard let self = self else { return }
 
-            // Tell delegate to attempt the connection recovery.
-            delegateQueue.async {
-                self.delegate?.tunnelMonitorDelegateShouldHandleConnectionRecovery(self)
+                self.internalQueue.async {
+                    if self.state.isConnecting || self.state.isConnected {
+                        self.startConnectivityCheckTimer()
+                    }
+                }
             }
+        } else {
+            maybeSendPing(now: now)
         }
     }
 
     private func handleNetworkPathUpdate(_ networkPath: Network.NWPath) {
-        guard let address = address else {
-            return
-        }
+        let isReachable = isNetworkPathReachable(networkPath)
 
-        let isNetworkReachable = isNetworkPathReachable(networkPath)
+        switch (isReachable, state) {
+        case (true, .waitingConnectivity):
+            logger.debug("Network is reachable. Resume monitoring.")
 
-        switch (isNetworkReachable, isPinging) {
-        case (true, false):
-            logger.debug("Network is reachable. Starting to ping.")
+            startMonitoring()
+            sendDelegateNetworkStatusChange(isReachable)
 
-            do {
-                try startPinging(address: address)
+        case (false, .connecting), (false, .connected):
+            logger.debug("Network is unreachable. Pause monitoring.")
 
-                // Reset the last recovery attempt date.
-                firstAttemptDate = Date()
-                lastAttemptDate = firstAttemptDate
-
-                // Start WG stats timer.
-                setWgStatsTimer(interval: TunnelMonitorConfiguration.wgStatsQueryInterval)
-
-                delegateQueue.async {
-                    self.delegate?.tunnelMonitor(
-                        self,
-                        networkReachabilityStatusDidChange: isNetworkReachable
-                    )
-                }
-            } catch {
-                let error = error as! Pinger.Error
-
-                if error != lastError {
-                    logger.error(
-                        chainedError: AnyChainedError(error),
-                        message: "Failed to start pinging."
-                    )
-                    lastError = error
-                }
-            }
-
-        case (false, true):
-            logger.debug("Network is unreachable. Stop pinging and wait...")
-
-            // Cancel timers and ping.
-            cancelWgStatsTimer()
-            stopPinging()
-
-            // Reset the last recovery attempt date.
-            lastAttemptDate = nil
-
-            delegateQueue.async {
-                self.delegate?.tunnelMonitor(
-                    self,
-                    networkReachabilityStatusDidChange: isNetworkReachable
-                )
-            }
+            state = .waitingConnectivity
+            stopMonitoring()
+            sendDelegateNetworkStatusChange(isReachable)
 
         default:
             break
         }
     }
 
+    private func startMonitoring() {
+        guard address != nil else {
+            return
+        }
+
+        do {
+            guard let interfaceName = adapter.interfaceName else {
+                logger.debug("Failed to obtain utun interface name.")
+                return
+            }
+
+            try pinger.openSocket(bindTo: interfaceName)
+        } catch {
+            logger.error(chainedError: AnyChainedError(error), message: "Failed to open socket.")
+            return
+        }
+
+        state = .connecting(
+            startDate: Date(),
+            transmitDate: nil,
+            stats: WgStats()
+        )
+
+        startConnectivityCheckTimer()
+    }
+
+    private func stopMonitoring() {
+        stopConnectivityCheckTimer()
+        pinger.closeSocket()
+        resetPingStats()
+    }
+
+    private func startConnectivityCheckTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: internalQueue)
+        timer.setEventHandler { [weak self] in
+            self?.checkConnectivity()
+        }
+        timer.schedule(wallDeadline: .now(), repeating: connectivityCheckInterval)
+        timer.activate()
+
+        self.timer?.cancel()
+        self.timer = timer
+    }
+
+    private func stopConnectivityCheckTimer() {
+        timer?.cancel()
+        timer = nil
+    }
+
+    private func isPingTimedOut(now: Date, timeout: TimeInterval) -> Bool {
+        guard let initialPingTimestamp = initialPingTimestamp else { return false }
+
+        return now.timeIntervalSince(initialPingTimestamp) > timeout
+    }
+
+    private func maybeSendPing(now: Date) {
+        guard let address = address else {
+            return
+        }
+
+        guard lastPingTimestamp.map({ lastPingTimestamp in
+            return now.timeIntervalSince(lastPingTimestamp) >= secondsPerPing
+        }) ?? true else {
+            return
+        }
+
+        if state.isReceiveTimedOut(now: now) {
+            logger.debug("Receive timed out.")
+        } else if state.isTrafficTimedOut(now: now) {
+            logger.debug("Traffic timed out.")
+        } else {
+            return
+        }
+
+        logger.debug("Send ping.")
+
+        do {
+            _ = try pinger.send(to: address)
+
+            if initialPingTimestamp == nil {
+                initialPingTimestamp = now
+            }
+
+            lastPingTimestamp = now
+        } catch {
+            logger.error(chainedError: AnyChainedError(error), message: "Failed to send ping.")
+        }
+    }
+
+    private func resetPingStats() {
+        initialPingTimestamp = nil
+        lastPingTimestamp = nil
+    }
+
+    private func sendDelegateConnectionEstablished() {
+        delegateQueue.async {
+            self.delegate?.tunnelMonitorDidDetermineConnectionEstablished(self)
+        }
+    }
+
+    private func sendDelegateShouldHandleConnectionRecovery(completion: @escaping () -> Void) {
+        delegateQueue.async {
+            self.delegate?.tunnelMonitorDelegate(
+                self,
+                shouldHandleConnectionRecoveryWithCompletion: completion
+            )
+        }
+    }
+
+    private func sendDelegateNetworkStatusChange(_ isNetworkReachable: Bool) {
+        delegateQueue.async {
+            self.delegate?.tunnelMonitor(
+                self,
+                networkReachabilityStatusDidChange: isNetworkReachable
+            )
+        }
+    }
+
+    private func getStats() -> WgStats? {
+        var result: String?
+
+        let dispatchGroup = DispatchGroup()
+        dispatchGroup.enter()
+        adapter.getRuntimeConfiguration { string in
+            result = string
+            dispatchGroup.leave()
+        }
+        dispatchGroup.wait()
+
+        guard let result = result else {
+            logger.debug("Received nil string for stats.")
+            return nil
+        }
+
+        guard let newStats = WgStats(from: result) else {
+            logger.debug("Couldn't parse stats.")
+            return nil
+        }
+
+        return newStats
+    }
+
     private func isNetworkPathReachable(_ networkPath: Network.NWPath) -> Bool {
-        // Get utun interface name.
         guard let tunName = adapter.interfaceName else { return false }
 
         // Check if utun is up.
@@ -285,7 +352,6 @@ final class TunnelMonitor {
             return interface.name == tunName
         }
 
-        // Return false if tunnel is down.
         guard utunUp else {
             return false
         }
@@ -304,19 +370,107 @@ final class TunnelMonitor {
             return false
         }
     }
+}
 
-    private class func parseNetworkBytesReceived(from string: String) -> UInt64? {
-        guard let range = string.range(of: "rx_bytes=") else { return nil }
+/// Tunnel monitor state.
+private enum State {
+    /// Initialized and doing nothing.
+    case initialized
 
-        let startIndex = range.upperBound
-        let endIndex = string[startIndex...].firstIndex { ch in
-            return ch.isNewline
+    /// Establishing connection.
+    case connecting(
+        startDate: Date,
+        transmitDate: Date?,
+        stats: WgStats
+    )
+
+    /// Connection is established.
+    case connected(
+        receiveDate: Date,
+        transmitDate: Date,
+        stats: WgStats
+    )
+
+    /// Waiting for network connectivity.
+    case waitingConnectivity
+
+    /// Returns `true` if inbound traffic counter incremented.
+    mutating func update(now: Date, newStats: WgStats) -> Bool {
+        switch self {
+        case .initialized, .waitingConnectivity:
+            return false
+
+        case let .connecting(startDate, transmitDate, oldStats):
+            if newStats.bytesReceived > oldStats.bytesReceived {
+                self = .connected(
+                    receiveDate: now,
+                    transmitDate: transmitDate ?? startDate,
+                    stats: newStats
+                )
+                return true
+            } else if newStats.bytesSent > oldStats.bytesSent {
+                self = .connecting(
+                    startDate: startDate,
+                    transmitDate: now,
+                    stats: newStats
+                )
+            }
+            return false
+
+        case let .connected(receiveDate, transmitDate, oldStats):
+            let receivedNewBytes = newStats.bytesReceived > oldStats.bytesReceived
+
+            self = .connected(
+                receiveDate: receivedNewBytes ? now : receiveDate,
+                transmitDate: newStats.bytesSent > oldStats.bytesSent ? now : transmitDate,
+                stats: newStats
+            )
+
+            return receivedNewBytes
         }
+    }
 
-        if let endIndex = endIndex {
-            return UInt64(string[startIndex ..< endIndex])
-        } else {
-            return nil
+    /// Returns `true` if last time data was received too long ago.
+    func isReceiveTimedOut(now: Date) -> Bool {
+        switch self {
+        case let .connecting(startDate, _, _):
+            return now.timeIntervalSince(startDate) >= receiveBytesTimeout
+
+        case let .connected(receiveDate, transmitDate, _):
+            return transmitDate > receiveDate &&
+                now.timeIntervalSince(receiveDate) >= receiveBytesTimeout
+
+        case .initialized, .waitingConnectivity:
+            return false
         }
+    }
+
+    /// Returns `true` if no data has been sent or received in a while.
+    func isTrafficTimedOut(now: Date) -> Bool {
+        switch self {
+        case .connecting:
+            return isReceiveTimedOut(now: now)
+
+        case let .connected(receiveDate, transmitDate, _):
+            return now.timeIntervalSince(receiveDate) >= trafficTimeout ||
+                now.timeIntervalSince(transmitDate) >= trafficTimeout
+
+        case .initialized, .waitingConnectivity:
+            return false
+        }
+    }
+
+    var isConnecting: Bool {
+        if case .connecting = self {
+            return true
+        }
+        return false
+    }
+
+    var isConnected: Bool {
+        if case .connected = self {
+            return true
+        }
+        return false
     }
 }

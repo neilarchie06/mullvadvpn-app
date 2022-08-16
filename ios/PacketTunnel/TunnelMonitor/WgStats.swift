@@ -12,6 +12,11 @@ struct WgStats {
     let bytesReceived: UInt64
     let bytesSent: UInt64
 
+    init() {
+        bytesReceived = 0
+        bytesSent = 0
+    }
+
     init?(from string: String) {
         var _bytesReceived: UInt64?
         var _bytesSent: UInt64?

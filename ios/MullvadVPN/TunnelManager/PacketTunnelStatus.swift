@@ -13,9 +13,6 @@ struct PacketTunnelStatus: Codable, Equatable {
     /// Flag indicating whether network is reachable.
     var isNetworkReachable = true
 
-    /// When the packet tunnel started connecting.
-    var connectingDate: Date?
-
     /// Current relay.
     var tunnelRelay: PacketTunnelRelay?
 }

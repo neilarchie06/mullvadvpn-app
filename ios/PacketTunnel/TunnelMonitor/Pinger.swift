@@ -25,7 +25,7 @@ final class Pinger {
     }
 
     /// Open socket and optionally bind it to the given interface.
-    /// When called multiple times in a row, makes sure to clo
+    /// Automatically closes the previously opened socket when called multiple times in a row.
     func openSocket(bindTo interfaceName: String?) throws {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -76,7 +76,7 @@ final class Pinger {
     }
 
     /// Send ping packet to the given address.
-    /// Returns number of bytes sent on success, or -1 on failure.
+    /// Returns number of bytes sent on success, otherwise -1 on failure.
     func send(to address: IPv4Address) throws -> Int {
         stateLock.lock()
         guard let socket = socket else {

@@ -32,9 +32,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
     /// Flag indicating whether network is reachable.
     private var isNetworkReachable = true
 
-    /// When the packet tunnel started connecting.
-    private var connectingDate: Date?
-
     /// Current selector result.
     private var selectorResult: RelaySelectorResult?
 
@@ -53,7 +50,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
     private var packetTunnelStatus: PacketTunnelStatus {
         return PacketTunnelStatus(
             isNetworkReachable: isNetworkReachable,
-            connectingDate: connectingDate,
             tunnelRelay: selectorResult?.packetTunnelRelay
         )
     }
@@ -167,7 +163,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                     // Start tunnel monitor.
                     let gatewayAddress = tunnelConfiguration.selectorResult.endpoint.ipv4Gateway
 
-                    self.startTunnelMonitor(gatewayAddress: gatewayAddress)
+                    self.tunnelMonitor.start(address: gatewayAddress)
                 }
             }
         }
@@ -270,8 +266,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         providerLogger.debug("Connection established.")
 
-        connectingDate = nil
-
         startTunnelCompletionHandler?(nil)
         startTunnelCompletionHandler = nil
 
@@ -279,7 +273,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         reassertTunnelCompletionHandler = nil
     }
 
-    func tunnelMonitorDelegateShouldHandleConnectionRecovery(_ tunnelMonitor: TunnelMonitor) {
+    func tunnelMonitorDelegate(
+        _ tunnelMonitor: TunnelMonitor,
+        shouldHandleConnectionRecoveryWithCompletion completionHandler: @escaping () -> Void
+    ) {
         dispatchPrecondition(condition: .onQueue(dispatchQueue))
 
         providerLogger.debug("Recover connection. Picking next relay...")
@@ -307,6 +304,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
             tunnelConfiguration = try makeConfiguration(nil)
         } catch {
             handleRecoveryFailure(error)
+            completionHandler()
             return
         }
 
@@ -321,6 +319,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                 if let error = error {
                     handleRecoveryFailure(error)
                 }
+                completionHandler()
             }
         }
     }
@@ -330,12 +329,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         networkReachabilityStatusDidChange isNetworkReachable: Bool
     ) {
         self.isNetworkReachable = isNetworkReachable
-
-        // Adjust the start reconnect date if tunnel monitor re-started pinging in response to
-        // network connectivity coming back up.
-        if let startDate = tunnelMonitor.startDate {
-            connectingDate = startDate
-        }
     }
 
     // MARK: - Private
@@ -378,7 +371,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         // Update tunnel status.
         selectorResult = tunnelConfiguration.selectorResult
-        connectingDate = nil
 
         providerLogger.debug("Set tunnel relay to \(newTunnelRelay.hostname).")
 
@@ -427,17 +419,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                     // Restart tunnel monitor.
                     let gatewayAddress = tunnelConfiguration.selectorResult.endpoint.ipv4Gateway
 
-                    self.startTunnelMonitor(gatewayAddress: gatewayAddress)
+                    self.tunnelMonitor.start(address: gatewayAddress)
                 }
             }
         }
-    }
-
-    private func startTunnelMonitor(gatewayAddress: IPv4Address) {
-        tunnelMonitor.start(address: gatewayAddress)
-
-        // Mark when the tunnel started monitoring connection.
-        connectingDate = tunnelMonitor.startDate
     }
 
     /// Load relay cache with potential networking to refresh the cache and pick the relay for the

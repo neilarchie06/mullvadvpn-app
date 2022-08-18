@@ -37,11 +37,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
     /// A system completion handler passed from startTunnel and saved for later use once the
     /// connection is established.
-    private var startTunnelCompletionHandler: ((Error?) -> Void)?
+    private var startTunnelCompletionHandler: (() -> Void)?
 
     /// A completion handler passed during reassertion and saved for later use once the connection
     /// is reestablished.
-    private var reassertTunnelCompletionHandler: ((Error?) -> Void)?
+    private var reassertTunnelCompletionHandler: (() -> Void)?
 
     /// Tunnel monitor.
     private var tunnelMonitor: TunnelMonitor!
@@ -152,12 +152,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
                     // Store completion handler and call it from TunnelMonitorDelegate once
                     // the connection is established.
-                    self.startTunnelCompletionHandler = { [weak self] error in
+                    self.startTunnelCompletionHandler = { [weak self] in
                         // Mark the tunnel connected.
                         self?.isConnected = true
 
                         // Call system completion handler.
-                        completionHandler(error)
+                        completionHandler(nil)
                     }
 
                     // Start tunnel monitor.
@@ -266,10 +266,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         providerLogger.debug("Connection established.")
 
-        startTunnelCompletionHandler?(nil)
+        startTunnelCompletionHandler?()
         startTunnelCompletionHandler = nil
 
-        reassertTunnelCompletionHandler?(nil)
+        reassertTunnelCompletionHandler?()
         reassertTunnelCompletionHandler = nil
     }
 
@@ -281,46 +281,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         providerLogger.debug("Recover connection. Picking next relay...")
 
-        let handleRecoveryFailure = { (error: Error) in
-            // Stop tunnel monitor.
-            tunnelMonitor.stop()
-
-            // Call start tunnel completion handler with error.
-            self.startTunnelCompletionHandler?(error)
-
-            // Reset start tunnel completion handler.
-            self.startTunnelCompletionHandler = nil
-
-            // Call tunnel reassertion completion handler with error.
-            self.reassertTunnelCompletionHandler?(error)
-
-            // Reset tunnel reassertion completion handler.
-            self.reassertTunnelCompletionHandler = nil
-        }
-
-        // Read tunnel configuration.
-        let tunnelConfiguration: PacketTunnelConfiguration
-        do {
-            tunnelConfiguration = try makeConfiguration(nil)
-        } catch {
-            handleRecoveryFailure(error)
+        reconnectTunnel(selectorResult: nil) { error in
             completionHandler()
-            return
-        }
-
-        // Update tunnel status.
-        let tunnelRelay = tunnelConfiguration.selectorResult.packetTunnelRelay
-        selectorResult = tunnelConfiguration.selectorResult
-        providerLogger.debug("Set tunnel relay to \(tunnelRelay.hostname).")
-
-        // Update WireGuard configuration.
-        adapter.update(tunnelConfiguration: tunnelConfiguration.wgTunnelConfig) { error in
-            self.dispatchQueue.async {
-                if let error = error {
-                    handleRecoveryFailure(error)
-                }
-                completionHandler()
-            }
         }
     }
 

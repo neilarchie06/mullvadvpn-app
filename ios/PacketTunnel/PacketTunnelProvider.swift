@@ -150,13 +150,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                 } else {
                     self.providerLogger.debug("Started the tunnel.")
 
-                    // Store completion handler and call it from TunnelMonitorDelegate once
-                    // the connection is established.
                     self.startTunnelCompletionHandler = { [weak self] in
-                        // Mark the tunnel connected.
                         self?.isConnected = true
-
-                        // Call system completion handler.
                         completionHandler(nil)
                     }
 
@@ -257,7 +252,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         // Add code here to wake up.
     }
 
-    // MARK: - TunnelMonitor
+    // MARK: - TunnelMonitorDelegate
 
     func tunnelMonitorDidDetermineConnectionEstablished(_ tunnelMonitor: TunnelMonitor) {
         dispatchPrecondition(condition: .onQueue(dispatchQueue))
@@ -341,7 +336,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
             reasserting = true
         }
 
-        // Update WireGuard configuration.
         adapter.update(tunnelConfiguration: tunnelConfiguration.wgTunnelConfig) { error in
             self.dispatchQueue.async {
                 // Reset previously stored completion handler.
@@ -363,9 +357,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                     // Call completion handler immediately.
                     completionHandler(error)
                 } else {
-                    // Store completion handler and call it from TunnelMonitorDelegate once
-                    // the connection is established.
-                    self.reassertTunnelCompletionHandler = { [weak self] providerError in
+                    self.reassertTunnelCompletionHandler = { [weak self] in
                         guard let self = self else { return }
 
                         // Lower the reasserting flag.
@@ -373,7 +365,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                             self.reasserting = false
                         }
 
-                        completionHandler(providerError)
+                        completionHandler(nil)
                     }
 
                     self.tunnelMonitor.start(

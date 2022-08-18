@@ -176,11 +176,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         providerLogger.debug("Stop the tunnel: \(reason)")
 
         dispatchQueue.async {
-            // Stop tunnel monitor.
             self.tunnelMonitor.stop()
 
-            // Unset the start tunnel completion handler.
             self.startTunnelCompletionHandler = nil
+            self.reassertTunnelCompletionHandler = nil
         }
 
         adapter.stop { error in

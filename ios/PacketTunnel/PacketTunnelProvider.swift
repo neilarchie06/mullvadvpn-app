@@ -160,10 +160,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                         completionHandler(nil)
                     }
 
-                    // Start tunnel monitor.
-                    let gatewayAddress = tunnelConfiguration.selectorResult.endpoint.ipv4Gateway
-
-                    self.tunnelMonitor.start(address: gatewayAddress)
+                    self.tunnelMonitor.start(
+                        probeAddress: tunnelConfiguration.selectorResult.endpoint.ipv4Gateway
+                    )
                 }
             }
         }
@@ -377,10 +376,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                         completionHandler(providerError)
                     }
 
-                    // Restart tunnel monitor.
-                    let gatewayAddress = tunnelConfiguration.selectorResult.endpoint.ipv4Gateway
-
-                    self.tunnelMonitor.start(address: gatewayAddress)
+                    self.tunnelMonitor.start(
+                        probeAddress: tunnelConfiguration.selectorResult.endpoint.ipv4Gateway
+                    )
                 }
             }
         }

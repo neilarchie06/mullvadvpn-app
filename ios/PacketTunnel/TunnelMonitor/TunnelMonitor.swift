@@ -29,17 +29,17 @@ private let receiveBytesTimeout: TimeInterval = 5
 private let connectivityCheckInterval: TimeInterval = 1
 
 final class TunnelMonitor {
-    private var state: State = .initialized
+    private var state: State = .stopped
 
     private let adapter: WireGuardAdapter
     private let internalQueue = DispatchQueue(label: "TunnelMonitor")
     private let delegateQueue: DispatchQueue
 
-    private var address: IPv4Address?
     private let pinger = Pinger()
     private var pathMonitor: NWPathMonitor?
     private var timer: DispatchSourceTimer?
 
+    private var probeAddress: IPv4Address?
     private var initialPingTimestamp: Date?
     private var lastPingTimestamp: Date?
 
@@ -68,9 +68,9 @@ final class TunnelMonitor {
         stopNoQueue()
     }
 
-    func start(address: IPv4Address) {
+    func start(probeAddress: IPv4Address) {
         internalQueue.async {
-            self.startNoQueue(address: address)
+            self.startNoQueue(probeAddress: probeAddress)
         }
     }
 
@@ -82,15 +82,15 @@ final class TunnelMonitor {
 
     // MARK: - Private
 
-    private func startNoQueue(address pingAddress: IPv4Address) {
-        if case .initialized = state {
-            logger.debug("Start with address: \(pingAddress).")
+    private func startNoQueue(probeAddress: IPv4Address) {
+        if case .stopped = state {
+            logger.debug("Start with address: \(probeAddress).")
         } else {
             stopNoQueue(forRestart: true)
-            logger.debug("Restart with address: \(pingAddress)")
+            logger.debug("Restart with address: \(probeAddress)")
         }
 
-        address = pingAddress
+        self.probeAddress = probeAddress
 
         let pathMonitor = NWPathMonitor()
         pathMonitor.pathUpdateHandler = { [weak self] path in
@@ -111,7 +111,7 @@ final class TunnelMonitor {
     }
 
     private func stopNoQueue(forRestart: Bool = false) {
-        if case .initialized = state {
+        if case .stopped = state {
             return
         }
 
@@ -119,14 +119,14 @@ final class TunnelMonitor {
             logger.debug("Stop tunnel monitor.")
         }
 
-        address = nil
+        probeAddress = nil
 
         pathMonitor?.cancel()
         pathMonitor = nil
 
         stopMonitoring()
 
-        state = .initialized
+        state = .stopped
     }
 
     private func checkConnectivity() {
@@ -203,10 +203,6 @@ final class TunnelMonitor {
     }
 
     private func startMonitoring() {
-        guard address != nil else {
-            return
-        }
-
         do {
             guard let interfaceName = adapter.interfaceName else {
                 logger.debug("Failed to obtain utun interface name.")
@@ -258,7 +254,7 @@ final class TunnelMonitor {
     }
 
     private func maybeSendPing(now: Date) {
-        guard let address = address else {
+        guard let probeAddress = probeAddress else {
             return
         }
 
@@ -279,7 +275,7 @@ final class TunnelMonitor {
         logger.debug("Send ping.")
 
         do {
-            _ = try pinger.send(to: address)
+            _ = try pinger.send(to: probeAddress)
 
             if initialPingTimestamp == nil {
                 initialPingTimestamp = now
@@ -375,7 +371,7 @@ final class TunnelMonitor {
 /// Tunnel monitor state.
 private enum State {
     /// Initialized and doing nothing.
-    case initialized
+    case stopped
 
     /// Establishing connection.
     case connecting(

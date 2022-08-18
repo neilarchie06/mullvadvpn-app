@@ -119,7 +119,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         // Read tunnel configuration.
         let tunnelConfiguration: PacketTunnelConfiguration
         do {
-            tunnelConfiguration = try makeConfiguration(appSelectorResult)
+            let setRelayCommand: SetRelayCommand = appSelectorResult.map { .set($0) } ?? .pickNext
+            
+            tunnelConfiguration = try makeConfiguration(setRelayCommand)
         } catch {
             providerLogger.error(
                 chainedError: AnyChainedError(error),
@@ -212,7 +214,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
             case let .reconnectTunnel(appSelectorResult):
                 self.providerLogger.debug("Reconnecting the tunnel...")
 
-                self.reconnectTunnel(selectorResult: appSelectorResult) { [weak self] error in
+                let relayCommand: SetRelayCommand = (appSelectorResult ?? self.selectorResult)
+                    .map { .set($0) } ?? .pickNext
+
+                self.reconnectTunnel(to: relayCommand) { [weak self] error in
                     guard let self = self else { return }
 
                     if let error = error {
@@ -274,7 +279,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         providerLogger.debug("Recover connection. Picking next relay...")
 
-        reconnectTunnel(selectorResult: nil) { error in
+        reconnectTunnel(to: .pickNext) { error in
             completionHandler()
         }
     }
@@ -288,15 +293,21 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
     // MARK: - Private
 
-    private func makeConfiguration(_ appSelectorResult: RelaySelectorResult? = nil)
+    private func makeConfiguration(_ setRelayCommand: SetRelayCommand)
         throws -> PacketTunnelConfiguration
     {
         let deviceState = try SettingsManager.readDeviceState()
         let tunnelSettings = try SettingsManager.readSettings()
-        let selectorResult = try appSelectorResult
-            ?? Self.selectRelayEndpoint(
+        let selectorResult: RelaySelectorResult
+
+        switch setRelayCommand {
+        case .pickNext:
+            selectorResult = try Self.selectRelayEndpoint(
                 relayConstraints: tunnelSettings.relayConstraints
             )
+        case .set(let aSelectorResult):
+            selectorResult = aSelectorResult
+        }
 
         return PacketTunnelConfiguration(
             deviceState: deviceState,
@@ -306,7 +317,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
     }
 
     private func reconnectTunnel(
-        selectorResult aSelectorResult: RelaySelectorResult?,
+        to command: SetRelayCommand,
         completionHandler: @escaping (Error?) -> Void
     ) {
         dispatchPrecondition(condition: .onQueue(dispatchQueue))
@@ -314,7 +325,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         // Read tunnel configuration.
         let tunnelConfiguration: PacketTunnelConfiguration
         do {
-            tunnelConfiguration = try makeConfiguration(aSelectorResult ?? selectorResult)
+            tunnelConfiguration = try makeConfiguration(command)
         } catch {
             completionHandler(error)
             return
@@ -395,4 +406,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
             constraints: relayConstraints
         )
     }
+}
+
+/// Enum describing the next relay to connect to.
+private enum SetRelayCommand {
+    case set(RelaySelectorResult)
+    case pickNext
 }

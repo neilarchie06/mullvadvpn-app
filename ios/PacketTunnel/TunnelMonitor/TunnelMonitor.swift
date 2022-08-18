@@ -393,7 +393,7 @@ private enum State {
     /// Returns `true` if inbound traffic counter incremented.
     mutating func update(now: Date, newStats: WgStats) -> Bool {
         switch self {
-        case .initialized, .waitingConnectivity:
+        case .stopped, .waitingConnectivity:
             return false
 
         case let .connecting(startDate, transmitDate, oldStats):
@@ -436,7 +436,7 @@ private enum State {
             return transmitDate > receiveDate &&
                 now.timeIntervalSince(receiveDate) >= receiveBytesTimeout
 
-        case .initialized, .waitingConnectivity:
+        case .stopped, .waitingConnectivity:
             return false
         }
     }
@@ -451,7 +451,7 @@ private enum State {
             return now.timeIntervalSince(receiveDate) >= trafficTimeout ||
                 now.timeIntervalSince(transmitDate) >= trafficTimeout
 
-        case .initialized, .waitingConnectivity:
+        case .stopped, .waitingConnectivity:
             return false
         }
     }

@@ -32,6 +32,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
     /// Flag indicating whether network is reachable.
     private var isNetworkReachable = true
 
+    /// Last runtime error.
+    private var lastError: Error?
+
     /// Current selector result.
     private var selectorResult: RelaySelectorResult?
 
@@ -49,6 +52,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
     /// Returns `PacketTunnelStatus` used for sharing with main bundle process.
     private var packetTunnelStatus: PacketTunnelStatus {
         return PacketTunnelStatus(
+            lastError: lastError?.localizedDescription,
             isNetworkReachable: isNetworkReachable,
             tunnelRelay: selectorResult?.packetTunnelRelay
         )

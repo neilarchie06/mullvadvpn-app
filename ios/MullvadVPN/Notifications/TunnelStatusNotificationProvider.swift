@@ -16,6 +16,13 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
         case waitingForConnectivity
         case failure(Error)
 
+        var isPacketTunnelFailure: Bool {
+            if case .failure(is PacketTunnelError) = self {
+                return true
+            }
+            return false
+        }
+
         var isDefault: Bool {
             if case .default = self {
                 return true
@@ -63,18 +70,22 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
             )
 
         case let .failure(error):
-            let body = (error as? LocalizedNotificationError)?.localizedNotificationBody ?? error
-                .localizedDescription
-
             return InAppNotificationDescriptor(
                 identifier: identifier,
                 style: .error,
-                title: NSLocalizedString(
-                    "TUNNEL_ERROR_INAPP_NOTIFICATION_TITLE",
-                    value: "TUNNEL ERROR",
-                    comment: ""
-                ),
-                body: body
+                title: error is PacketTunnelError
+                    ? NSLocalizedString(
+                        "TUNNEL_LEAKING_INAPP_NOTIFICATION_TITLE",
+                        value: "NETWORK TRAFFIC MIGHT BE LEAKING",
+                        comment: ""
+                    )
+                    : NSLocalizedString(
+                        "TUNNEL_ERROR_INAPP_NOTIFICATION_TITLE",
+                        value: "TUNNEL ERROR",
+                        comment: ""
+                    ),
+                body: (error as? LocalizedNotificationError)?.localizedNotificationBody ?? error
+                    .localizedDescription
             )
         }
     }
@@ -92,7 +103,8 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
         switch tunnelState {
         case .connecting, .connected, .reconnecting:
             // Remove all messages, connectivity will be updated upon the tunnel startup.
-            if !state.isDefault {
+            // Exception: keep packet tunnel errors visible until the tunnel is disconnected.
+            if !state.isDefault, !state.isPacketTunnelFailure {
                 state = .default
             }
 
@@ -102,8 +114,9 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
             }
 
         case .disconnecting, .disconnected:
-            // Leave failure on screen once disconnected but remove connectivity message.
-            if state.isWaitingForConnectivity {
+            // Leave GUI failures on screen once disconnected, remove connectivity message and
+            // packet tunnel failures.
+            if state.isWaitingForConnectivity || state.isPacketTunnelFailure {
                 state = .default
             }
 
@@ -164,6 +177,19 @@ extension StopTunnelError: LocalizedNotificationError {
                 comment: ""
             ),
             underlyingError.localizedDescription
+        )
+    }
+}
+
+extension PacketTunnelError: LocalizedNotificationError {
+    var localizedNotificationBody: String? {
+        return String(
+            format: NSLocalizedString(
+                "PACKET_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
+                value: "Could not configure VPN: %@",
+                comment: ""
+            ),
+            errorDescription ?? ""
         )
     }
 }

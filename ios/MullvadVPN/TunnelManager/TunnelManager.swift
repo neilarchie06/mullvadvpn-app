@@ -616,6 +616,19 @@ final class TunnelManager {
 
         logger.info("Status: \(newTunnelStatus).")
 
+        let tunnelError = newTunnelStatus.packetTunnelStatus.lastError
+            .flatMap { lastError -> PacketTunnelError? in
+                let previousTunnelError = _tunnelStatus.packetTunnelStatus.lastError
+
+                if lastError != previousTunnelError {
+                    self.logger.debug("Received error from packet tunnel: \(lastError)")
+
+                    return PacketTunnelError(errorDescription: lastError)
+                }
+
+                return nil
+            }
+
         _tunnelStatus = newTunnelStatus
 
         switch newTunnelStatus.state {
@@ -636,6 +649,10 @@ final class TunnelManager {
         DispatchQueue.main.async {
             self.observerList.forEach { observer in
                 observer.tunnelManager(self, didUpdateTunnelState: newTunnelStatus.state)
+
+                if let tunnelError = tunnelError {
+                    observer.tunnelManager(self, didFailWithError: tunnelError)
+                }
             }
         }
     }

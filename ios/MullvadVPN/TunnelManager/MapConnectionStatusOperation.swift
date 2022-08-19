@@ -39,26 +39,41 @@ class MapConnectionStatusOperation: AsyncOperation {
         switch connectionStatus {
         case .connecting:
             switch tunnelState {
-            case .connecting(.some(_)):
+            case .connecting:
                 break
+
             default:
-                interactor.updateTunnelState(.connecting(nil))
+                var newTunnelStatus = interactor.tunnelStatus
+                newTunnelStatus.state = .connecting(nil)
+                interactor.setTunnelStatus(newTunnelStatus)
             }
 
-            updateTunnelRelayAndFinish(tunnel: tunnel) { relay in
-                return relay.map { .connecting($0) }
+            fetchTunnelStatus(tunnel: tunnel) { packetTunnelStatus in
+                if packetTunnelStatus.isNetworkReachable {
+                    return packetTunnelStatus.tunnelRelay.map { .connecting($0) }
+                } else {
+                    return .waitingForConnectivity
+                }
             }
             return
 
         case .reasserting:
-            updateTunnelRelayAndFinish(tunnel: tunnel) { relay in
-                return relay.map { .reconnecting($0) }
+            fetchTunnelStatus(tunnel: tunnel) { packetTunnelStatus in
+                if packetTunnelStatus.isNetworkReachable {
+                    return packetTunnelStatus.tunnelRelay.map { .reconnecting($0) }
+                } else {
+                    return .waitingForConnectivity
+                }
             }
             return
 
         case .connected:
-            updateTunnelRelayAndFinish(tunnel: tunnel) { relay in
-                return relay.map { .connected($0) }
+            fetchTunnelStatus(tunnel: tunnel) { packetTunnelStatus in
+                if packetTunnelStatus.isNetworkReachable {
+                    return packetTunnelStatus.tunnelRelay.map { .connected($0) }
+                } else {
+                    return .waitingForConnectivity
+                }
             }
             return
 
@@ -70,11 +85,15 @@ class MapConnectionStatusOperation: AsyncOperation {
             case .disconnecting(.reconnect):
                 logger.debug("Restart the tunnel on disconnect.")
 
-                interactor.resetTunnelState(to: .pendingReconnect)
+                var newTunnelStatus = TunnelStatus()
+                newTunnelStatus.state = .pendingReconnect
+                interactor.setTunnelStatus(newTunnelStatus)
                 interactor.startTunnel()
 
             default:
-                interactor.resetTunnelState(to: .disconnected)
+                var newTunnelStatus = TunnelStatus()
+                newTunnelStatus.state = .disconnected
+                interactor.setTunnelStatus(newTunnelStatus)
             }
 
         case .disconnecting:
@@ -82,11 +101,15 @@ class MapConnectionStatusOperation: AsyncOperation {
             case .disconnecting:
                 break
             default:
-                interactor.resetTunnelState(to: .disconnecting(.nothing))
+                var newTunnelStatus = TunnelStatus()
+                newTunnelStatus.state = .disconnecting(.nothing)
+                interactor.setTunnelStatus(newTunnelStatus)
             }
 
         case .invalid:
-            interactor.resetTunnelState(to: .disconnected)
+            var newTunnelStatus = TunnelStatus()
+            newTunnelStatus.state = .disconnected
+            interactor.setTunnelStatus(newTunnelStatus)
 
         @unknown default:
             logger.debug("Unknown NEVPNStatus: \(connectionStatus.rawValue)")
@@ -99,19 +122,23 @@ class MapConnectionStatusOperation: AsyncOperation {
         request?.cancel()
     }
 
-    private func updateTunnelRelayAndFinish(
+    private func fetchTunnelStatus(
         tunnel: Tunnel,
-        mapRelayToState: @escaping (PacketTunnelRelay?) -> TunnelState?
+        mapToState: @escaping (PacketTunnelStatus) -> TunnelState?
     ) {
         request = tunnel.getTunnelStatus { [weak self] completion in
             guard let self = self else { return }
 
             self.dispatchQueue.async {
                 if case let .success(packetTunnelStatus) = completion, !self.isCancelled {
-                    self.interactor.updateTunnelStatus(
-                        from: packetTunnelStatus,
-                        mappingRelayToState: mapRelayToState
-                    )
+                    var newTunnelStatus = self.interactor.tunnelStatus
+                    newTunnelStatus.packetTunnelStatus = packetTunnelStatus
+
+                    if let newState = mapToState(packetTunnelStatus) {
+                        newTunnelStatus.state = newState
+                    }
+
+                    self.interactor.setTunnelStatus(newTunnelStatus)
                 }
 
                 self.finish()

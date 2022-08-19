@@ -14,20 +14,10 @@ protocol TunnelInteractor {
     var tunnel: Tunnel? { get }
     func setTunnel(_ tunnel: Tunnel?, shouldRefreshTunnelState: Bool)
 
-    // MARK: - Tunnel status manipulation
+    // MARK: - Tunnel status
 
     var tunnelStatus: TunnelStatus { get }
-
     func setTunnelStatus(_ tunnelStatus: TunnelStatus)
-    func updateTunnelStatus(
-        from packetTunnelStatus: PacketTunnelStatus,
-        mappingRelayToState mapper: (PacketTunnelRelay?) -> TunnelState?
-    )
-
-    // MARK: - Tunnel state
-
-    func updateTunnelState(_ state: TunnelState)
-    func resetTunnelState(to state: TunnelState)
 
     // MARK: - Configuration
 

@@ -120,7 +120,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         let tunnelConfiguration: PacketTunnelConfiguration
         do {
             let setRelayCommand: SetRelayCommand = appSelectorResult.map { .set($0) } ?? .pickNext
-            
+
             tunnelConfiguration = try makeConfiguration(setRelayCommand)
         } catch {
             providerLogger.error(
@@ -288,6 +288,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         _ tunnelMonitor: TunnelMonitor,
         networkReachabilityStatusDidChange isNetworkReachable: Bool
     ) {
+        guard self.isNetworkReachable != isNetworkReachable else { return }
+
         self.isNetworkReachable = isNetworkReachable
     }
 
@@ -305,7 +307,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
             selectorResult = try Self.selectRelayEndpoint(
                 relayConstraints: tunnelSettings.relayConstraints
             )
-        case .set(let aSelectorResult):
+        case let .set(aSelectorResult):
             selectorResult = aSelectorResult
         }
 

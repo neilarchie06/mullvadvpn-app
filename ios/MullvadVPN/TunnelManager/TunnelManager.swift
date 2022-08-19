@@ -13,18 +13,23 @@ import StoreKit
 import UIKit
 import class WireGuardKitTypes.PublicKey
 
+/// Interval used for periodic pollingg of tunnel relay status when tunnel is establishing
+/// connection.
+private let establishingTunnelStatusPollInterval: TimeInterval = 3
+
+/// Interval used for periodic polling of tunnel connectivity status once the tunnel connection
+/// is established.
+private let establishedTunnelStatusPollInterval: TimeInterval = 5
+
+/// Private key rotation interval (in seconds).
+private let privateKeyRotationInterval: TimeInterval = 60 * 60 * 24 * 4
+
+/// Private key rotation retry interval (in seconds).
+private let privateKeyRotationFailureRetryInterval: TimeInterval = 60 * 15
+
 /// A class that provides a convenient interface for VPN tunnels configuration, manipulation and
 /// monitoring.
 final class TunnelManager {
-    /// Poll interval used for fetching new relay the tunnel is attempting to connect to.
-    private static let tunnelStatusPollInterval: TimeInterval = 3
-
-    /// Private key rotation interval (in seconds).
-    private static let privateKeyRotationInterval: TimeInterval = 60 * 60 * 24 * 4
-
-    /// Private key rotation retry interval (in seconds).
-    private static let privateKeyRotationFailureRetryInterval: TimeInterval = 60 * 15
-
     private enum OperationCategory: String {
         case manageTunnel
         case deviceStateUpdate
@@ -133,7 +138,7 @@ final class TunnelManager {
             // Retry at equal interval if failed or cancelled.
             if !completion.isSuccess {
                 let date = lastAttemptDate.addingTimeInterval(
-                    Self.privateKeyRotationFailureRetryInterval
+                    privateKeyRotationFailureRetryInterval
                 )
 
                 return max(date, Date())
@@ -141,8 +146,7 @@ final class TunnelManager {
         }
 
         // Rotate at long intervals otherwise.
-        let date = deviceData.wgKeyData.creationDate
-            .addingTimeInterval(Self.privateKeyRotationInterval)
+        let date = deviceData.wgKeyData.creationDate.addingTimeInterval(privateKeyRotationInterval)
 
         return max(date, Date())
     }
@@ -241,7 +245,9 @@ final class TunnelManager {
     }
 
     func refreshTunnelStatus() {
-        logger.debug("Refresh tunnel status due to application becoming active.")
+        #if DEBUG
+            logger.debug("Refresh tunnel status due to application becoming active.")
+        #endif
         _refreshTunnelStatus()
     }
 
@@ -438,7 +444,7 @@ final class TunnelManager {
     ) -> Cancellable {
         var rotationInterval: TimeInterval?
         if !forceRotate {
-            rotationInterval = Self.privateKeyRotationInterval
+            rotationInterval = privateKeyRotationInterval
         }
 
         let operation = RotateKeyOperation(
@@ -593,27 +599,6 @@ final class TunnelManager {
         }
     }
 
-    fileprivate func updateTunnelState(_ state: TunnelState) {
-        nslock.lock()
-        defer { nslock.unlock() }
-
-        var updatedStatus = _tunnelStatus
-        updatedStatus.state = state
-        setTunnelStatus(updatedStatus)
-    }
-
-    fileprivate func updateTunnelStatus(
-        from packetTunnelStatus: PacketTunnelStatus,
-        mappingRelayToState mapper: (PacketTunnelRelay?) -> TunnelState?
-    ) {
-        nslock.lock()
-        defer { nslock.unlock() }
-
-        var updatedStatus = _tunnelStatus
-        updatedStatus.update(from: packetTunnelStatus, mappingRelayToState: mapper)
-        setTunnelStatus(updatedStatus)
-    }
-
     fileprivate func resetTunnelStatus(to state: TunnelState) {
         nslock.lock()
         defer { nslock.unlock() }
@@ -627,6 +612,8 @@ final class TunnelManager {
         nslock.lock()
         defer { nslock.unlock() }
 
+        guard _tunnelStatus != newTunnelStatus else { return }
+
         logger.info("Status: \(newTunnelStatus).")
 
         _tunnelStatus = newTunnelStatus
@@ -635,9 +622,13 @@ final class TunnelManager {
         case .connecting, .reconnecting:
             // Start polling tunnel status to keep the relay information up to date
             // while the tunnel process is trying to connect.
-            startPollingTunnelStatus()
+            startPollingTunnelStatus(interval: establishingTunnelStatusPollInterval)
 
-        case .pendingReconnect, .connected, .disconnecting, .disconnected:
+        case .connected, .waitingForConnectivity:
+            // Start polling tunnel status to keep connectivity status up to date.
+            startPollingTunnelStatus(interval: establishedTunnelStatusPollInterval)
+
+        case .pendingReconnect, .disconnecting, .disconnected:
             // Stop polling tunnel status once connection moved to final state.
             cancelPollingTunnelStatus()
         }
@@ -879,23 +870,24 @@ final class TunnelManager {
 
     // MARK: - Tunnel status polling
 
-    private func startPollingTunnelStatus() {
+    private func startPollingTunnelStatus(interval: TimeInterval) {
         guard !isPolling else { return }
 
         isPolling = true
 
         logger.debug(
-            "Start polling tunnel status every \(Self.tunnelStatusPollInterval) second(s)."
+            "Start polling tunnel status every \(interval) second(s)."
         )
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.setEventHandler { [weak self] in
             guard let self = self else { return }
-
-            self.logger.debug("Refresh tunnel status (poll).")
+            #if DEBUG
+                self.logger.debug("Refresh tunnel status (poll).")
+            #endif
             self._refreshTunnelStatus()
         }
-        timer.schedule(wallDeadline: .now(), repeating: Self.tunnelStatusPollInterval)
+        timer.schedule(wallDeadline: .now() + interval, repeating: interval)
         timer.activate()
 
         tunnelStatusPollTimer?.cancel()
@@ -972,21 +964,6 @@ private struct TunnelInteractorProxy: TunnelInteractor {
 
     func setTunnelStatus(_ tunnelStatus: TunnelStatus) {
         tunnelManager.setTunnelStatus(tunnelStatus)
-    }
-
-    func updateTunnelStatus(
-        from packetTunnelStatus: PacketTunnelStatus,
-        mappingRelayToState mapper: (PacketTunnelRelay?) -> TunnelState?
-    ) {
-        tunnelManager.updateTunnelStatus(from: packetTunnelStatus, mappingRelayToState: mapper)
-    }
-
-    func updateTunnelState(_ state: TunnelState) {
-        tunnelManager.updateTunnelState(state)
-    }
-
-    func resetTunnelState(to state: TunnelState) {
-        tunnelManager.resetTunnelStatus(to: state)
     }
 
     var isConfigurationLoaded: Bool {

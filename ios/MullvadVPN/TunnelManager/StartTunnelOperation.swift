@@ -38,7 +38,9 @@ class StartTunnelOperation: ResultOperation<Void, Error> {
 
         switch interactor.tunnelStatus.state {
         case .disconnecting(.nothing):
-            interactor.updateTunnelState(.disconnecting(.reconnect))
+            var newTunnelStatus = TunnelStatus()
+            newTunnelStatus.state = .disconnecting(.reconnect)
+            interactor.setTunnelStatus(newTunnelStatus)
 
             finish(completion: .success(()))
 
@@ -103,7 +105,11 @@ class StartTunnelOperation: ResultOperation<Void, Error> {
             Tunnel(tunnelProvider: tunnelProvider),
             shouldRefreshTunnelState: false
         )
-        interactor.resetTunnelState(to: .connecting(selectorResult.packetTunnelRelay))
+
+        var newTunnelStatus = TunnelStatus()
+        newTunnelStatus.packetTunnelStatus.tunnelRelay = selectorResult.packetTunnelRelay
+        newTunnelStatus.state = .connecting(selectorResult.packetTunnelRelay)
+        interactor.setTunnelStatus(newTunnelStatus)
 
         try tunnelProvider.connection.startVPNTunnel(options: tunnelOptions.rawOptions())
     }

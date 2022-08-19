@@ -10,6 +10,19 @@ import Foundation
 import UIKit
 
 class OutOfTimeContentView: UIView {
+    
+    private let topSpacerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
+    private let bottomSpacerView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    
     let statusActivityView: StatusActivityView = {
         let statusActivityView = StatusActivityView(state: .failure)
         statusActivityView.translatesAutoresizingMaskIntoConstraints = false
@@ -56,7 +69,19 @@ class OutOfTimeContentView: UIView {
         button.setTitle(localizedString, for: .normal)
         return button
     }()
-
+    
+    lazy var restoreButton: AppButton = {
+        let button = AppButton(style: .default)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle(NSLocalizedString(
+            "RESTORE_PURCHASES_BUTTON_TITLE",
+            tableName: "OutOfTime",
+            value: "Restore purchases",
+            comment: ""
+        ), for: .normal)
+        return button
+    }()
+    
     lazy var purchaseButton: InAppPurchaseButton = {
         let button = InAppPurchaseButton()
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -69,14 +94,14 @@ class OutOfTimeContentView: UIView {
         button.setTitle(localizedString, for: .normal)
         return button
     }()
-
-    lazy var restoreButton: AppButton = {
-        let button = AppButton(style: .default)
+    
+    lazy var redeemButton: AppButton = {
+        let button = AppButton(style: .success)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle(NSLocalizedString(
-            "RESTORE_PURCHASES_BUTTON_TITLE",
+            "REDEEM_VOUCHER_BUTTON_TITLE",
             tableName: "OutOfTime",
-            value: "Restore purchases",
+            value: "Redeem voucher",
             comment: ""
         ), for: .normal)
         return button
@@ -92,7 +117,7 @@ class OutOfTimeContentView: UIView {
 
     private lazy var bottomStackView: UIStackView = {
         let stackView = UIStackView(
-            arrangedSubviews: [disconnectButton, purchaseButton, restoreButton]
+            arrangedSubviews: [disconnectButton, purchaseButton, redeemButton, restoreButton]
         )
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .vertical
@@ -117,22 +142,35 @@ class OutOfTimeContentView: UIView {
 
 private extension OutOfTimeContentView {
     func setUpSubviews() {
+        addSubview(topSpacerView)
         addSubview(topStackView)
+        addSubview(bottomSpacerView)
         addSubview(bottomStackView)
         configureConstraints()
     }
 
     func configureConstraints() {
         NSLayoutConstraint.activate([
-            topStackView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -20),
-
+            topSpacerView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            topSpacerView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            topSpacerView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            topSpacerView.heightAnchor.constraint(equalTo: bottomSpacerView.heightAnchor),
+            topSpacerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
+            
+            topStackView.topAnchor.constraint(equalTo: topSpacerView.bottomAnchor),
             topStackView.leadingAnchor.constraint(
                 equalTo: layoutMarginsGuide.leadingAnchor
             ),
             topStackView.trailingAnchor.constraint(
                 equalTo: layoutMarginsGuide.trailingAnchor
             ),
+            
+            bottomSpacerView.topAnchor.constraint(equalTo: topStackView.bottomAnchor),
+            bottomSpacerView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            bottomSpacerView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            bottomSpacerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
 
+            bottomStackView.topAnchor.constraint(equalTo: bottomSpacerView.bottomAnchor),
             bottomStackView.leadingAnchor.constraint(
                 equalTo: layoutMarginsGuide.leadingAnchor
             ),

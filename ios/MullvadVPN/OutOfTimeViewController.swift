@@ -18,6 +18,12 @@ class OutOfTimeViewController: UIViewController {
 
     private let alertPresenter = AlertPresenter()
 
+    private let scrollView: UIScrollView = {
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        return scrollView
+    }()
+    
     private lazy var contentView = OutOfTimeContentView()
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -32,7 +38,7 @@ class OutOfTimeViewController: UIViewController {
     }
 
     override func viewDidLoad() {
-        setUpContentView()
+        setUpSubviews()
         setUpButtonTargets()
         setUpInAppPurchases()
         addObservers()
@@ -43,14 +49,27 @@ class OutOfTimeViewController: UIViewController {
 // MARK: - Private Functions
 
 private extension OutOfTimeViewController {
-    func setUpContentView() {
-        view.addSubview(contentView)
-
+    
+    func setUpSubviews() {
+        scrollView.addSubview(contentView)
+        view.addSubview(scrollView)
+        
+        configureConstraints()
+    }
+    
+    func configureConstraints() {
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: view.topAnchor),
-            contentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
         ])
     }
 
@@ -71,24 +90,24 @@ private extension OutOfTimeViewController {
             action: #selector(restorePurchases),
             for: .touchUpInside
         )
+        contentView.redeemButton.addTarget(
+            self,
+            action: #selector(didTapRedeemVoucher),
+            for: .touchUpInside
+        )
     }
 
     @objc func handleDisconnect(_ sender: Any) {
         TunnelManager.shared.stopTunnel()
     }
+    
+    @objc func didTapRedeemVoucher() {
+        rootContainerController?.pushViewController(RedeemVoucherViewController(), animated: true)
+    }
 
     func addObservers() {
         AppStorePaymentManager.shared.addPaymentObserver(self)
         TunnelManager.shared.addObserver(self)
-    }
-
-    func setEnableUserInteraction(_ enableUserInteraction: Bool) {
-        [contentView.purchaseButton, contentView.restoreButton]
-            .forEach { button in
-                button?.isEnabled = enableUserInteraction
-            }
-
-        view.isUserInteractionEnabled = enableUserInteraction
     }
 
     func bodyText(for tunnelState: TunnelState) -> String {
@@ -144,7 +163,7 @@ private extension OutOfTimeViewController {
     func setProductState(_ newState: ProductState, animated: Bool) {
         productState = newState
 
-        applyViewState(animated: animated)
+        applyViewState(animated: false)
     }
 
     func applyViewState(animated: Bool) {
@@ -162,7 +181,9 @@ private extension OutOfTimeViewController {
 
             purchaseButton.isEnabled = self.productState.isReceived && isInteractionEnabled && !self
                 .tunnelState.isSecured
-            self.contentView.restoreButton.isEnabled = isInteractionEnabled
+            self.contentView.redeemButton.isEnabled = isInteractionEnabled && !self
+                .tunnelState.isSecured
+            self.contentView.restoreButton.isEnabled = isInteractionEnabled && !self.tunnelState.isSecured
             self.contentView.disconnectButton.isEnabled = self.tunnelState.isSecured
             self.contentView.disconnectButton.alpha = self.tunnelState.isSecured ? 1 : 0
             self.contentView.bodyLabel.text = self.bodyText(for: self.tunnelState)
@@ -179,7 +200,11 @@ private extension OutOfTimeViewController {
             )
         }
         if animated {
-            UIView.animate(withDuration: 0.25, animations: actions)
+            UIView.animate(withDuration: 0.25, animations: {
+                actions()
+                self.view.layoutIfNeeded()
+            }
+                )
         } else {
             actions()
         }

@@ -498,27 +498,35 @@ extension SceneDelegate {
     }
 
     private func handleExpiredAccount() {
-        guard case let .loggedIn(accountData, _) = TunnelManager.shared.deviceState,
-              accountData.expiry <= Date() else { return }
+        // TODO: Temp
+        let block = {
+        guard case let .loggedIn(accountData, _) = TunnelManager.shared.deviceState else { return }
+//              accountData.expiry <= Date() else { return }
 
         switch UIDevice.current.userInterfaceIdiom {
         case .phone:
-            if !rootContainer.viewControllers.contains(where: { $0 is OutOfTimeViewController }) {
-                rootContainer.pushViewController(makeOutOfTimeViewController(), animated: false)
+            if !self.rootContainer.viewControllers.contains(where: { $0 is OutOfTimeViewController }) {
+                self.rootContainer.pushViewController(self.makeOutOfTimeViewController(), animated: false)
             }
         case .pad:
-            if !modalRootContainer.viewControllers
+            if !self.modalRootContainer.viewControllers
                 .contains(where: { $0 is OutOfTimeViewController })
             {
-                modalRootContainer.pushViewController(
-                    makeOutOfTimeViewController(),
+                self.modalRootContainer.pushViewController(
+                    self.makeOutOfTimeViewController(),
                     animated: false
                 )
-                presentModalRootContainerIfNeeded(animated: true)
+                self.presentModalRootContainerIfNeeded(animated: true)
             }
         default:
             return
         }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            block()
+        }
+        
     }
 
     private func showSplitViewMaster(_ show: Bool, animated: Bool) {

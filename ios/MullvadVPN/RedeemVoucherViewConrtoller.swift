@@ -34,5 +34,15 @@ private extension RedeemVoucherViewController {
         ])
     }
 
-    func setUpButtonTargets() {}
+    func setUpButtonTargets() {
+        contentView.cancelButton.addTarget(
+            self,
+            action: #selector(didTapCancelButton),
+            for: .touchUpInside
+        )
+    }
+    
+    @objc func didTapCancelButton() {
+        rootContainerController?.popViewController(animated: true)
+    }
 }

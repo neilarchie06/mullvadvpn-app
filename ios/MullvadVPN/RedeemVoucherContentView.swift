@@ -89,9 +89,21 @@ class RedeemVoucherContentView: UIView {
         let button = AppButton(style: .success)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle(NSLocalizedString(
-            "OUT_OF_TIME_PURCHASE_BUTTON",
+            "REDEEM_VOUCHER_REDEEM_BUTTON",
             tableName: "RedeemVoucher",
             value: "Redeem",
+            comment: ""
+        ), for: .normal)
+        return button
+    }()
+    
+    lazy var cancelButton: AppButton = {
+        let button = AppButton(style: .default)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle(NSLocalizedString(
+            "REDEEM_VOUCHER_CANCEL_BUTTON",
+            tableName: "RedeemVoucher",
+            value: "Cancel",
             comment: ""
         ), for: .normal)
         return button
@@ -119,12 +131,22 @@ class RedeemVoucherContentView: UIView {
         return stackView
     }()
 
+    private lazy var bottomStackView: UIStackView = {
+        let stackView = UIStackView(
+            arrangedSubviews: [redeemButton, cancelButton]
+        )
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .vertical
+        stackView.spacing = UIMetrics.sectionSpacing
+        return stackView
+    }()
+    
     override init(frame: CGRect) {
         super.init(frame: frame)
 
         translatesAutoresizingMaskIntoConstraints = false
 
-        backgroundColor = .primaryColor
+        backgroundColor = .secondaryColor
 
         setUpSubviews()
 
@@ -141,7 +163,7 @@ class RedeemVoucherContentView: UIView {
 private extension RedeemVoucherContentView {
     func setUpSubviews() {
         addSubview(topStackView)
-        addSubview(redeemButton)
+        addSubview(bottomStackView)
         configureConstraints()
     }
 
@@ -165,7 +187,7 @@ private extension RedeemVoucherContentView {
 
     func configureConstraints() {
         NSLayoutConstraint.activate([
-            topStackView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+            topStackView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: UIMetrics.verticalCenterOffset),
 
             topStackView.leadingAnchor.constraint(
                 equalTo: layoutMarginsGuide.leadingAnchor
@@ -175,15 +197,15 @@ private extension RedeemVoucherContentView {
                 equalTo: layoutMarginsGuide.trailingAnchor
             ),
 
-            redeemButton.leadingAnchor.constraint(
+            bottomStackView.leadingAnchor.constraint(
                 equalTo: layoutMarginsGuide.leadingAnchor
             ),
 
-            redeemButton.trailingAnchor.constraint(
+            bottomStackView.trailingAnchor.constraint(
                 equalTo: layoutMarginsGuide.trailingAnchor
             ),
 
-            redeemButton.bottomAnchor.constraint(
+            bottomStackView.bottomAnchor.constraint(
                 equalTo: layoutMarginsGuide.bottomAnchor
             ),
         ])

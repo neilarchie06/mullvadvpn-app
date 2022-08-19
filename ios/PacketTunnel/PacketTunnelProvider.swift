@@ -217,18 +217,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
                 let relayCommand: SetRelayCommand = (appSelectorResult ?? self.selectorResult)
                     .map { .set($0) } ?? .pickNext
 
-                self.reconnectTunnel(to: relayCommand) { [weak self] error in
-                    guard let self = self else { return }
-
-                    if let error = error {
-                        self.providerLogger.error(
-                            chainedError: AnyChainedError(error),
-                            message: "Failed to reconnect the tunnel."
-                        )
-                    } else {
-                        self.providerLogger.debug("Reconnected the tunnel.")
-                    }
-                }
+                self.reconnectTunnel(to: relayCommand)
 
                 completionHandler?(nil)
 
@@ -269,6 +258,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         reassertTunnelCompletionHandler?()
         reassertTunnelCompletionHandler = nil
+
+        setReconnecting(false)
     }
 
     func tunnelMonitorDelegate(
@@ -279,9 +270,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         providerLogger.debug("Recover connection. Picking next relay...")
 
-        reconnectTunnel(to: .pickNext) { error in
-            completionHandler()
-        }
+        reconnectTunnel(to: .pickNext, completionHandler: completionHandler)
     }
 
     func tunnelMonitor(
@@ -291,9 +280,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         guard self.isNetworkReachable != isNetworkReachable else { return }
 
         self.isNetworkReachable = isNetworkReachable
+
+        // Switch tunnel into reconnecting state when offline.
+        if !isNetworkReachable {
+            setReconnecting(true)
+        }
     }
 
     // MARK: - Private
+
+    private func setReconnecting(_ reconnecting: Bool) {
+        // Raise reasserting flag, but only if tunnel has already moved to connected state once.
+        // Otherwise keep the app in connecting state until it manages to establish the very first
+        // connection.
+        if isConnected {
+            reasserting = reconnecting
+        }
+    }
 
     private func makeConfiguration(_ setRelayCommand: SetRelayCommand)
         throws -> PacketTunnelConfiguration
@@ -320,7 +323,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
     private func reconnectTunnel(
         to command: SetRelayCommand,
-        completionHandler: @escaping (Error?) -> Void
+        completionHandler: (() -> Void)? = nil
     ) {
         dispatchPrecondition(condition: .onQueue(dispatchQueue))
 
@@ -329,7 +332,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         do {
             tunnelConfiguration = try makeConfiguration(command)
         } catch {
-            completionHandler(error)
+            providerLogger.error(
+                chainedError: AnyChainedError(error),
+                message: "Failed produce new configuration."
+            )
+            completionHandler?()
             return
         }
 
@@ -341,45 +348,29 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
         selectorResult = tunnelConfiguration.selectorResult
 
         providerLogger.debug("Set tunnel relay to \(newTunnelRelay.hostname).")
-
-        // Raise reasserting flag, but only if tunnel has already moved to connected state once.
-        // Otherwise keep the app in connecting state until it manages to establish the very first
-        // connection.
-        if isConnected {
-            reasserting = true
-        }
+        setReconnecting(true)
 
         adapter.update(tunnelConfiguration: tunnelConfiguration.wgTunnelConfig) { error in
             self.dispatchQueue.async {
-                // Reset previously stored completion handler.
-                self.reassertTunnelCompletionHandler = nil
 
-                // Call completion handler immediately on error to update adapter configuration.
                 if let error = error {
-                    // Revert to previously used relay selector.
+                    self.providerLogger.error(
+                        chainedError: AnyChainedError(error),
+                        message: "Failed to update WireGuard configuration."
+                    )
+
+                    // Revert to previously used relay selector as it's very likely that we keep
+                    // using previous configuration.
                     self.selectorResult = oldSelectorResult
                     self.providerLogger.debug(
                         "Reset tunnel relay to \(oldSelectorResult?.relay.hostname ?? "none")."
                     )
+                    self.reassertTunnelCompletionHandler = nil
+                    self.setReconnecting(false)
 
-                    // Lower the reasserting flag.
-                    if self.isConnected {
-                        self.reasserting = false
-                    }
-
-                    // Call completion handler immediately.
-                    completionHandler(error)
+                    completionHandler?()
                 } else {
-                    self.reassertTunnelCompletionHandler = { [weak self] in
-                        guard let self = self else { return }
-
-                        // Lower the reasserting flag.
-                        if self.isConnected {
-                            self.reasserting = false
-                        }
-
-                        completionHandler(nil)
-                    }
+                    self.reassertTunnelCompletionHandler = completionHandler
 
                     self.tunnelMonitor.start(
                         probeAddress: tunnelConfiguration.selectorResult.endpoint.ipv4Gateway

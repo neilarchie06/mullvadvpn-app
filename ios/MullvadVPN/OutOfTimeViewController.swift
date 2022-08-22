@@ -38,6 +38,8 @@ class OutOfTimeViewController: UIViewController {
     }
 
     override func viewDidLoad() {
+        super.viewDidLoad()
+        
         setUpSubviews()
         setUpButtonTargets()
         setUpInAppPurchases()

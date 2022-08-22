@@ -356,6 +356,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 
         adapter.update(tunnelConfiguration: tunnelConfiguration.wgTunnelConfig) { error in
             self.dispatchQueue.async {
+                self.lastError = error
+
+                if Int.random(in: 0 ... 10) % 2 == 0 {
+                    self.lastError = FakeError()
+                }
 
                 if let error = error {
                     self.providerLogger.error(

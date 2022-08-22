@@ -14,12 +14,14 @@ class OutOfTimeContentView: UIView {
     private let topSpacerView: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
         return view
     }()
     
     private let bottomSpacerView: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
         return view
     }()
     

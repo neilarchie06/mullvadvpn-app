@@ -21,6 +21,7 @@ class OutOfTimeViewController: UIViewController {
     private let scrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.indicatorStyle = .white
         return scrollView
     }()
     

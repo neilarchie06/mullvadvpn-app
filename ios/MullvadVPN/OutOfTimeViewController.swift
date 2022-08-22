@@ -30,11 +30,11 @@ class OutOfTimeViewController: UIViewController {
         return .lightContent
     }
 
-    private var tunnelState: TunnelState = .disconnected {
-        didSet {
-            setNeedsHeaderBarStyleAppearanceUpdate()
-            applyViewState(animated: true)
-        }
+    private var tunnelState: TunnelState = .disconnected
+
+    private func setTunnelState(_ newState: TunnelState, animated: Bool) {
+        setNeedsHeaderBarStyleAppearanceUpdate()
+        applyViewState(animated: animated)
     }
 
     override func viewDidLoad() {
@@ -42,7 +42,7 @@ class OutOfTimeViewController: UIViewController {
         setUpButtonTargets()
         setUpInAppPurchases()
         addObservers()
-        tunnelState = TunnelManager.shared.tunnelStatus.state
+        setTunnelState(TunnelManager.shared.tunnelStatus.state, animated: false)
     }
 }
 
@@ -370,7 +370,7 @@ extension OutOfTimeViewController: TunnelObserver {
     func tunnelManagerDidLoadConfiguration(_ manager: TunnelManager) {}
 
     func tunnelManager(_ manager: TunnelManager, didUpdateTunnelState tunnelState: TunnelState) {
-        self.tunnelState = tunnelState
+        setTunnelState(tunnelState, animated: true)
     }
 
     func tunnelManager(_ manager: TunnelManager, didUpdateDeviceState deviceState: DeviceState) {}

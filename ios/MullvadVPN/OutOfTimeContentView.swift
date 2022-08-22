@@ -129,8 +129,6 @@ class OutOfTimeContentView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = .secondaryColor
         layoutMargins = UIMetrics.contentLayoutMargins
         setUpSubviews()
     }
@@ -169,6 +167,7 @@ private extension OutOfTimeContentView {
             bottomSpacerView.topAnchor.constraint(equalTo: topStackView.bottomAnchor),
             bottomSpacerView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             bottomSpacerView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            bottomSpacerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 20),
 
             bottomStackView.topAnchor.constraint(equalTo: bottomSpacerView.bottomAnchor),
             bottomStackView.leadingAnchor.constraint(

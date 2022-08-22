@@ -24,7 +24,11 @@ class OutOfTimeViewController: UIViewController {
         return scrollView
     }()
     
-    private lazy var contentView = OutOfTimeContentView()
+    private let contentView: OutOfTimeContentView = {
+        let contentView = OutOfTimeContentView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        return contentView
+    }()
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
         return .lightContent
@@ -39,7 +43,9 @@ class OutOfTimeViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        
+
+        view.backgroundColor = .secondaryColor
+
         setUpSubviews()
         setUpButtonTargets()
         setUpInAppPurchases()
@@ -61,7 +67,7 @@ private extension OutOfTimeViewController {
     
     func configureConstraints() {
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),

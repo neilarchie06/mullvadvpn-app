@@ -157,7 +157,6 @@ private extension OutOfTimeContentView {
             topSpacerView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             topSpacerView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             topSpacerView.heightAnchor.constraint(equalTo: bottomSpacerView.heightAnchor),
-            topSpacerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
             
             topStackView.topAnchor.constraint(equalTo: topSpacerView.bottomAnchor),
             topStackView.leadingAnchor.constraint(
@@ -170,7 +169,6 @@ private extension OutOfTimeContentView {
             bottomSpacerView.topAnchor.constraint(equalTo: topStackView.bottomAnchor),
             bottomSpacerView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             bottomSpacerView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            bottomSpacerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
 
             bottomStackView.topAnchor.constraint(equalTo: bottomSpacerView.bottomAnchor),
             bottomStackView.leadingAnchor.constraint(

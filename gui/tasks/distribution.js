@@ -11,6 +11,7 @@ const noAppleNotarization = process.argv.includes('--no-apple-notarization');
 
 const universal = process.argv.includes('--universal');
 const release = process.argv.includes('--release');
+const e2e = process.argv.includes('--e2e');
 
 const targetsIndex = process.argv.indexOf('--targets');
 let targets = null;
@@ -282,11 +283,14 @@ function packMac() {
         }
 
         // Remove the folder that contains the unpacked app. Electron builder cleans up some of
-        // these directories and it's changed between versions without a mention in the changelog.
-        for (const dir of appOutDirs) {
-          try {
-            await fs.promises.rm(dir, { recursive: true });
-          } catch {}
+        // these directories, and it's changed between versions without a mention in the changelog.
+        // For e2e testing we need the resulting .app file, so don't delete anything.
+        if (!e2e) {
+          for (const dir of appOutDirs) {
+            try {
+              await fs.promises.rm(dir, { recursive: true });
+            } catch {}
+          }
         }
       },
       afterSign: (context) => {

@@ -26,6 +26,8 @@ SIGN="false"
 # If a macOS build should create an installer artifact working on both
 # Intel and Apple Silicon Macs
 UNIVERSAL="false"
+# If building for E2E tests we need to keep the .app file
+E2E="false"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -38,6 +40,7 @@ while [[ "$#" -gt 0 ]]; do
             fi
             UNIVERSAL="true"
             ;;
+        --e2e) E2E="true";;
         *)
             log_error "Unknown parameter: $1"
             exit 1
@@ -88,6 +91,10 @@ else
     RUST_BUILD_MODE="debug"
     NPM_PACK_ARGS+=(--no-compression)
     CPP_BUILD_MODE="Debug"
+fi
+
+if [[ "$E2E" == "true" ]]; then
+    NPM_PACK_ARGS+=(--e2e)
 fi
 
 if [[ "$SIGN" == "true" ]]; then

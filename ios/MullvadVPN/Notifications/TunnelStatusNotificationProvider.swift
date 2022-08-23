@@ -96,11 +96,11 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
         let tunnelManager = TunnelManager.shared
 
         tunnelManager.addObserver(self)
-        handleTunnelState(tunnelManager.tunnelStatus.state)
+        handleTunnelStatus(tunnelManager.tunnelStatus)
     }
 
-    private func handleTunnelState(_ tunnelState: TunnelState) {
-        switch tunnelState {
+    private func handleTunnelStatus(_ tunnelStatus: TunnelStatus) {
+        switch tunnelStatus.state {
         case .connecting, .connected, .reconnecting:
             // Remove all messages, connectivity will be updated upon the tunnel startup.
             // Exception: keep packet tunnel errors visible until the tunnel is disconnected.
@@ -131,8 +131,8 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
         // no-op
     }
 
-    func tunnelManager(_ manager: TunnelManager, didUpdateTunnelState tunnelState: TunnelState) {
-        handleTunnelState(tunnelState)
+    func tunnelManager(_ manager: TunnelManager, didUpdateTunnelStatus tunnelStatus: TunnelStatus) {
+        handleTunnelStatus(tunnelStatus)
     }
 
     func tunnelManager(

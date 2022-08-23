@@ -183,8 +183,8 @@ class ConnectViewController: UIViewController, MKMapViewDelegate, RootContainmen
         setNeedsHeaderBarStyleAppearanceUpdate()
     }
 
-    func tunnelManager(_ manager: TunnelManager, didUpdateTunnelState tunnelState: TunnelState) {
-        self.tunnelState = tunnelState
+    func tunnelManager(_ manager: TunnelManager, didUpdateTunnelStatus tunnelStatus: TunnelStatus) {
+        tunnelState = tunnelStatus.state
     }
 
     func tunnelManager(_ manager: TunnelManager, didFailWithError error: Error) {

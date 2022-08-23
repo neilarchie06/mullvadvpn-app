@@ -648,7 +648,7 @@ final class TunnelManager {
 
         DispatchQueue.main.async {
             self.observerList.forEach { observer in
-                observer.tunnelManager(self, didUpdateTunnelState: newTunnelStatus.state)
+                observer.tunnelManager(self, didUpdateTunnelStatus: newTunnelStatus)
 
                 if let tunnelError = tunnelError {
                     observer.tunnelManager(self, didFailWithError: tunnelError)

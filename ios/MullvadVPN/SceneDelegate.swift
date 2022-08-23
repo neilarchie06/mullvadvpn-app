@@ -932,7 +932,7 @@ extension SceneDelegate: TunnelObserver {
         configureScene()
     }
 
-    func tunnelManager(_ manager: TunnelManager, didUpdateTunnelState tunnelState: TunnelState) {
+    func tunnelManager(_ manager: TunnelManager, didUpdateTunnelStatus tunnelStatus: TunnelStatus) {
         // no-op
     }
 

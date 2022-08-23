@@ -415,3 +415,9 @@ private enum SetRelayCommand {
     case set(RelaySelectorResult)
     case pickNext
 }
+
+struct FakeError: LocalizedError {
+    var errorDescription: String? {
+        return "Something went terribly wrong!"
+    }
+}

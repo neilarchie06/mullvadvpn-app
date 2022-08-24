@@ -398,6 +398,9 @@
 		5820676726E79E7B00655B05 /* Result+UIBackgroundFetchResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Result+UIBackgroundFetchResult.swift"; sourceTree = "<group>"; };
 		5820EDA8288FE064006BF4E4 /* DeviceManagementInteractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceManagementInteractor.swift; sourceTree = "<group>"; };
 		5820EDAA288FF0D2006BF4E4 /* DeviceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRowView.swift; sourceTree = "<group>"; };
+		58218E1428B65058000C624F /* IPv4Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = IPv4Header.h; sourceTree = "<group>"; };
+		58218E1528B650C1000C624F /* ObjCBridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ObjCBridgingHeader.h; sourceTree = "<group>"; };
+		58218E1628B65396000C624F /* ICMPHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ICMPHeader.h; sourceTree = "<group>"; };
 		5823FA4F26CA690600283BF8 /* OSLogHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSLogHandler.swift; sourceTree = "<group>"; };
 		5823FA5326CE49F600283BF8 /* TunnelObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelObserver.swift; sourceTree = "<group>"; };
 		58289081286B590900478596 /* UIFont+Monospaced.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIFont+Monospaced.swift"; sourceTree = "<group>"; };
@@ -1009,6 +1012,7 @@
 				58E072A228814B96008902F8 /* TunnelMonitor */,
 				58E07298288031D5008902F8 /* WireGuardAdapterError+Localization.swift */,
 				58E0729E28814ACC008902F8 /* WireGuardLogLevel+Logging.swift */,
+				58218E1528B650C1000C624F /* ObjCBridgingHeader.h */,
 			);
 			path = PacketTunnel;
 			sourceTree = "<group>";
@@ -1030,6 +1034,8 @@
 				58FC040927B3EE03001C21F0 /* TunnelMonitor.swift */,
 				58E072A428814C28008902F8 /* TunnelMonitorDelegate.swift */,
 				58A3BDAF28A1821A00C8C2C6 /* WgStats.swift */,
+				58218E1428B65058000C624F /* IPv4Header.h */,
+				58218E1628B65396000C624F /* ICMPHeader.h */,
 			);
 			path = TunnelMonitor;
 			sourceTree = "<group>";
@@ -1844,6 +1850,7 @@
 				MARKETING_VERSION = 2022.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APPLICATION_IDENTIFIER).PacketTunnel";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PacketTunnel/ObjcBridgingHeader.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
@@ -1866,6 +1873,7 @@
 				MARKETING_VERSION = 2022.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APPLICATION_IDENTIFIER).PacketTunnel";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/PacketTunnel/ObjcBridgingHeader.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

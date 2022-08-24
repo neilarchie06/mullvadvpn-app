@@ -10,7 +10,22 @@ import Foundation
 import Logging
 import struct Network.IPv4Address
 
+protocol PingerDelegate: AnyObject {
+    func pinger(
+        _ pinger: Pinger,
+        didReceiveResponseFromSender senderAddress: IPv4Address,
+        sequenceNumber: UInt16
+    )
+
+    func pinger(
+        _ pinger: Pinger,
+        didFailToReadResponseWithError error: Error
+    )
+}
+
 final class Pinger {
+    typealias EchoReplyHandler = (IPv4Address, UInt16) -> Void
+
     // Sender identifier passed along with ICMP packet.
     private let identifier: UInt16 = 757
 
@@ -19,6 +34,23 @@ final class Pinger {
 
     private let logger = Logger(label: "Pinger")
     private let stateLock = NSRecursiveLock()
+
+    private weak var _delegate: PingerDelegate?
+
+    var delegate: PingerDelegate? {
+        get {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+
+            return _delegate
+        }
+        set {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+
+            _delegate = newValue
+        }
+    }
 
     deinit {
         closeSocket()
@@ -32,14 +64,25 @@ final class Pinger {
 
         closeSocket()
 
+        var context = CFSocketContext()
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+
         guard let newSocket = CFSocketCreate(
             kCFAllocatorDefault,
             AF_INET,
             SOCK_DGRAM,
             IPPROTO_ICMP,
             0,
-            nil,
-            nil
+            { socket, callbackType, address, data, info in
+                guard let info = info, callbackType == .readCallBack else {
+                    return
+                }
+
+                let pinger = Unmanaged<Pinger>.fromOpaque(info).takeUnretainedValue()
+
+                pinger.readSocket()
+            },
+            &context
         ) else {
             throw Error.createSocket
         }
@@ -76,8 +119,8 @@ final class Pinger {
     }
 
     /// Send ping packet to the given address.
-    /// Returns number of bytes sent on success, otherwise -1 on failure.
-    func send(to address: IPv4Address) throws -> Int {
+    /// Returns sequence number on success, otherwise throws a `Pinger.Error`.
+    func send(to address: IPv4Address) throws -> UInt16 {
         stateLock.lock()
         guard let socket = socket else {
             stateLock.unlock()
@@ -120,7 +163,7 @@ final class Pinger {
             throw Error.sendPacket(errorCode)
         }
 
-        return bytesSent
+        return sequenceNumber
     }
 
     private func nextSequenceNumber() -> UInt16 {
@@ -132,6 +175,57 @@ final class Pinger {
         stateLock.unlock()
 
         return nextSequenceNumber
+    }
+
+    private func readSocket() {
+        let bufferSize = 65535
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+
+        var address = sockaddr()
+        var addressLength = socklen_t(MemoryLayout.size(ofValue: address))
+        let bytesRead = recvfrom(
+            CFSocketGetNative(socket!),
+            &buffer,
+            bufferSize,
+            0,
+            &address,
+            &addressLength
+        )
+
+        do {
+            guard bytesRead > 0 else {
+                throw Error.receivePacket(errno)
+            }
+
+            let senderAddress = try withUnsafeBytes(of: &address) { buffer -> IPv4Address in
+                var saddr = buffer.load(as: sockaddr_in.self)
+                let addrData = Data(
+                    bytes: &saddr.sin_addr.s_addr,
+                    count: MemoryLayout<in_addr_t>.size
+                )
+
+                guard let ipv4Address = IPv4Address(addrData, nil) else {
+                    throw Error.parseIPv4Address
+                }
+
+                return ipv4Address
+            }
+
+            let ipv4PacketData = Data(bytes: &buffer, count: bytesRead)
+            let responseSequence = try validatePacket(ipv4PacketData: ipv4PacketData)
+
+            stateLock.lock()
+            _delegate?.pinger(
+                self,
+                didReceiveResponseFromSender: senderAddress,
+                sequenceNumber: responseSequence
+            )
+            stateLock.unlock()
+        } catch {
+            stateLock.lock()
+            _delegate?.pinger(self, didFailToReadResponseWithError: error)
+            stateLock.unlock()
+        }
     }
 
     private func bindSocket(_ socket: CFSocket, to interfaceName: String) throws {
@@ -158,40 +252,76 @@ final class Pinger {
         }
     }
 
+    private func getIPv4PacketPayload(data: Data) throws -> Data {
+        let minimumPacketSize = MemoryLayout<IPv4Header>.size + MemoryLayout<ICMPHeader>.size
+        guard data.count >= minimumPacketSize else {
+            throw Error.parseIPv4Packet
+        }
+
+        let ipv4Header = data.withUnsafeBytes { $0.load(as: IPv4Header.self) }
+        let versionAndHeaderLength = Int(ipv4Header.versionAndHeaderLength)
+        let proto = ipv4Header.protocol
+
+        guard (versionAndHeaderLength & 0xF0) == 0x40, proto == IPPROTO_ICMP else {
+            throw Error.parseIPv4Packet
+        }
+
+        let ipHeaderLength = (versionAndHeaderLength & 0x0F) * MemoryLayout<UInt32>.size
+
+        return data[ipHeaderLength...]
+    }
+
+    private func validatePacket(ipv4PacketData: Data) throws -> UInt16 {
+        var payload = try getIPv4PacketPayload(data: ipv4PacketData)
+
+        let receivedChecksum = payload.withUnsafeMutableBytes { bufferPointer -> UInt16 in
+            let checksum = bufferPointer.load(fromByteOffset: 2, as: UInt16.self)
+            bufferPointer.storeBytes(of: UInt16.zero, toByteOffset: 2, as: UInt16.self)
+            return checksum
+        }
+
+        let computedChecksum = in_chksum(payload)
+        guard receivedChecksum == computedChecksum else {
+            throw Error.invalidChecksum
+        }
+
+        return try payload.withUnsafeBytes { buffer in
+            let identifier = buffer.load(fromByteOffset: 4, as: UInt16.self).bigEndian
+            let sequenceNumber = buffer.load(fromByteOffset: 6, as: UInt16.self).bigEndian
+
+            guard identifier == self.identifier else {
+                throw Error.invalidIdentifier
+            }
+
+            return sequenceNumber
+        }
+    }
+
     private class func createICMPPacket(
         identifier: UInt16,
         sequenceNumber: UInt16,
         payload: Data?
     ) -> Data {
-        // Create data buffer.
-        var data = Data()
+        let header = ICMPHeader(
+            type: UInt8(ICMP_ECHO),
+            code: 0,
+            checksum: 0,
+            identifier: identifier.bigEndian,
+            sequenceNumber: sequenceNumber.bigEndian
+        )
 
-        // ICMP type.
-        data.append(UInt8(ICMP_ECHO))
-
-        // Code.
-        data.append(UInt8(0))
-
-        // Checksum.
-        withUnsafeBytes(of: UInt16(0)) { data.append(Data($0)) }
-
-        // Identifier.
-        withUnsafeBytes(of: identifier.bigEndian) { data.append(Data($0)) }
-
-        // Sequence number.
-        withUnsafeBytes(of: sequenceNumber.bigEndian) { data.append(Data($0)) }
-
-        // Append payload.
+        var data = withUnsafeBytes(of: header) { Data($0) }
         if let payload = payload {
             data.append(contentsOf: payload)
         }
 
-        // Calculate checksum.
         let checksum = in_chksum(data)
 
         // Inject computed checksum into the packet.
         data.withUnsafeMutableBytes { buffer in
-            buffer.storeBytes(of: checksum, toByteOffset: 2, as: UInt16.self)
+            let icmpHeaderPointer = buffer.baseAddress?.assumingMemoryBound(to: ICMPHeader.self)
+
+            icmpHeaderPointer?.pointee.checksum = checksum
         }
 
         return data
@@ -218,6 +348,21 @@ extension Pinger {
         /// Failure to send packet. Contains the `errno`.
         case sendPacket(Int32)
 
+        /// Failure to receive packet. Contains the `errno`.
+        case receivePacket(Int32)
+
+        /// Invalid checksum when matching the echo reply.
+        case invalidChecksum
+
+        /// Invalid ICMP identifier.
+        case invalidIdentifier
+
+        /// Failure to parse IPv4 packet.
+        case parseIPv4Packet
+
+        /// Failure to parse IPv4 address.
+        case parseIPv4Address
+
         var errorDescription: String? {
             switch self {
             case .createSocket:
@@ -232,6 +377,16 @@ extension Pinger {
                 return "Socket is closed."
             case let .sendPacket(code):
                 return "Failure to send packet (errno: \(code))."
+            case let .receivePacket(code):
+                return "Failure to receive packet (errno: \(code))."
+            case .invalidChecksum:
+                return "Invalid checksum."
+            case .invalidIdentifier:
+                return "Invalid client identifier."
+            case .parseIPv4Packet:
+                return "Failure to read IPv4 packet."
+            case .parseIPv4Address:
+                return "Failure to parse IPv4 address."
             }
         }
     }

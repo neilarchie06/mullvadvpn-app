@@ -358,10 +358,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
             self.dispatchQueue.async {
                 self.lastError = error
 
-                if Int.random(in: 0 ... 10) % 2 == 0 {
-                    self.lastError = FakeError()
-                }
-
                 if let error = error {
                     self.providerLogger.error(
                         chainedError: AnyChainedError(error),
@@ -414,10 +410,4 @@ class PacketTunnelProvider: NEPacketTunnelProvider, TunnelMonitorDelegate {
 private enum SetRelayCommand {
     case set(RelaySelectorResult)
     case pickNext
-}
-
-struct FakeError: LocalizedError {
-    var errorDescription: String? {
-        return "Something went terribly wrong!"
-    }
 }

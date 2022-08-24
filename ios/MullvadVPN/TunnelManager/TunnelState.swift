@@ -10,7 +10,7 @@ import Foundation
 
 /// A struct describing the tunnel status.
 struct TunnelStatus: Equatable, CustomStringConvertible {
-    /// Tunnel status returned by the tunnel process.
+    /// Tunnel status returned by tunnel process.
     var packetTunnelStatus = PacketTunnelStatus()
 
     /// Tunnel state.

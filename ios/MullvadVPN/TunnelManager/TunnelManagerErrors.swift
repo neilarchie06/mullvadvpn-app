@@ -9,14 +9,6 @@
 import Foundation
 import NetworkExtension
 
-struct PacketTunnelError: LocalizedError {
-    private(set) var errorDescription: String?
-
-    init(errorDescription: String) {
-        self.errorDescription = errorDescription
-    }
-}
-
 struct UnsetTunnelError: LocalizedError {
     var errorDescription: String? {
         return NSLocalizedString(

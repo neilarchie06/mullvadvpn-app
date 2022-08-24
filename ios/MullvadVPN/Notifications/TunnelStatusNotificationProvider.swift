@@ -21,83 +21,14 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
 
     var notificationDescriptor: InAppNotificationDescriptor? {
         if let packetTunnelError = packetTunnelError {
-            return InAppNotificationDescriptor(
-                identifier: identifier,
-                style: .error,
-                title: NSLocalizedString(
-                    "TUNNEL_LEAKING_INAPP_NOTIFICATION_TITLE",
-                    value: "NETWORK TRAFFIC MIGHT BE LEAKING",
-                    comment: ""
-                ),
-                body: String(
-                    format: NSLocalizedString(
-                        "PACKET_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
-                        value: "Could not configure VPN: %@",
-                        comment: ""
-                    ),
-                    packetTunnelError
-                )
-            )
+            return notificationDescription(for: packetTunnelError)
+        } else if let tunnelManagerError = tunnelManagerError {
+            return notificationDescription(for: tunnelManagerError)
+        } else if isWaitingForConnectivity {
+            return connectivityNotificationDescription()
+        } else {
+            return nil
         }
-
-        if let tunnelManagerError = tunnelManagerError {
-            let body: String
-
-            if let startError = tunnelManagerError as? StartTunnelError {
-                body = String(
-                    format: NSLocalizedString(
-                        "START_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
-                        value: "Failed to start the tunnel: %@.",
-                        comment: ""
-                    ),
-                    startError.underlyingError.localizedDescription
-                )
-            } else if let stopError = tunnelManagerError as? StopTunnelError {
-                body = String(
-                    format: NSLocalizedString(
-                        "STOP_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
-                        value: "Failed to stop the tunnel: %@.",
-                        comment: ""
-                    ),
-                    stopError.underlyingError.localizedDescription
-                )
-            } else {
-                body = tunnelManagerError.localizedDescription
-            }
-
-            return InAppNotificationDescriptor(
-                identifier: identifier,
-                style: .error,
-                title: NSLocalizedString(
-                    "TUNNEL_MANAGER_ERROR_INAPP_NOTIFICATION_TITLE",
-                    value: "TUNNEL ERROR",
-                    comment: ""
-                ),
-                body: body
-            )
-        }
-
-        if isWaitingForConnectivity {
-            return InAppNotificationDescriptor(
-                identifier: identifier,
-                style: .warning,
-                title: NSLocalizedString(
-                    "TUNNEL_NO_CONNECTIVITY_INAPP_NOTIFICATION_TITLE",
-                    value: "BLOCKING INTERNET",
-                    comment: ""
-                ),
-                body: NSLocalizedString(
-                    "TUNNEL_NO_CONNECTIVITY_INAPP_NOTIFICATION_BODY",
-                    value: """
-                           Your device is offline. The tunnel will automatically connect once \
-                           your device is back online.
-                           """,
-                    comment: ""
-                )
-            )
-        }
-
-        return nil
     }
 
     override init() {
@@ -111,10 +42,14 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
     // MARK: - Private
 
     private func handleTunnelStatus(_ tunnelStatus: TunnelStatus) {
-        let invalidateForError = updateLastTunnelError(tunnelStatus.packetTunnelStatus.lastError)
-        let invalidateForState = handleTunnelStateChange(tunnelStatus.state)
+        let invalidateForTunnelError = updateLastTunnelError(
+            tunnelStatus.packetTunnelStatus
+                .lastError
+        )
+        let invalidateForManagerError = updateTunnelManagerError(tunnelStatus.state)
+        let invalidateForConnectivity = updateConnectivity(tunnelStatus.state)
 
-        if invalidateForError || invalidateForState {
+        if invalidateForTunnelError || invalidateForManagerError || invalidateForConnectivity {
             invalidate()
         }
     }
@@ -129,7 +64,18 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
         return false
     }
 
-    private func handleTunnelStateChange(_ tunnelState: TunnelState) -> Bool {
+    private func updateConnectivity(_ tunnelState: TunnelState) -> Bool {
+        let isWaitingState = tunnelState == .waitingForConnectivity
+
+        if isWaitingForConnectivity != isWaitingState {
+            isWaitingForConnectivity = isWaitingState
+            return true
+        }
+
+        return false
+    }
+
+    private func updateTunnelManagerError(_ tunnelState: TunnelState) -> Bool {
         switch tunnelState {
         case .connecting, .connected, .reconnecting:
             // As of now, tunnel manager error can be received only when starting or stopping
@@ -139,23 +85,90 @@ class TunnelStatusNotificationProvider: NotificationProvider, InAppNotificationP
                 return true
             }
 
-        case .waitingForConnectivity:
-            if !isWaitingForConnectivity {
-                isWaitingForConnectivity = true
-                return true
-            }
-
-        case .disconnecting, .disconnected:
-            if isWaitingForConnectivity {
-                isWaitingForConnectivity = false
-                return true
-            }
-
         default:
             break
         }
 
         return false
+    }
+
+    private func notificationDescription(for packetTunnelError: String)
+        -> InAppNotificationDescriptor
+    {
+        return InAppNotificationDescriptor(
+            identifier: identifier,
+            style: .error,
+            title: NSLocalizedString(
+                "TUNNEL_LEAKING_INAPP_NOTIFICATION_TITLE",
+                value: "NETWORK TRAFFIC MIGHT BE LEAKING",
+                comment: ""
+            ),
+            body: String(
+                format: NSLocalizedString(
+                    "PACKET_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
+                    value: "Could not configure VPN: %@",
+                    comment: ""
+                ),
+                packetTunnelError
+            )
+        )
+    }
+
+    private func notificationDescription(for error: Error) -> InAppNotificationDescriptor {
+        let body: String
+
+        if let startError = error as? StartTunnelError {
+            body = String(
+                format: NSLocalizedString(
+                    "START_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
+                    value: "Failed to start the tunnel: %@.",
+                    comment: ""
+                ),
+                startError.underlyingError.localizedDescription
+            )
+        } else if let stopError = error as? StopTunnelError {
+            body = String(
+                format: NSLocalizedString(
+                    "STOP_TUNNEL_ERROR_INAPP_NOTIFICATION_BODY",
+                    value: "Failed to stop the tunnel: %@.",
+                    comment: ""
+                ),
+                stopError.underlyingError.localizedDescription
+            )
+        } else {
+            body = error.localizedDescription
+        }
+
+        return InAppNotificationDescriptor(
+            identifier: identifier,
+            style: .error,
+            title: NSLocalizedString(
+                "TUNNEL_MANAGER_ERROR_INAPP_NOTIFICATION_TITLE",
+                value: "TUNNEL ERROR",
+                comment: ""
+            ),
+            body: body
+        )
+    }
+
+    private func connectivityNotificationDescription() -> InAppNotificationDescriptor {
+        return InAppNotificationDescriptor(
+            identifier: identifier,
+            style: .warning,
+            title: NSLocalizedString(
+                "TUNNEL_NO_CONNECTIVITY_INAPP_NOTIFICATION_TITLE",
+                value: "BLOCKING INTERNET",
+                comment: ""
+            ),
+            body: NSLocalizedString(
+                "TUNNEL_NO_CONNECTIVITY_INAPP_NOTIFICATION_BODY",
+                value: """
+                Your device is offline. The tunnel will automatically connect once \
+                your device is back online.
+                """,
+                comment: ""
+            )
+        )
     }
 
     // MARK: - TunnelObserver

@@ -43,9 +43,9 @@ class MapConnectionStatusOperation: AsyncOperation {
                 break
 
             default:
-                var newTunnelStatus = interactor.tunnelStatus
-                newTunnelStatus.state = .connecting(nil)
-                interactor.setTunnelStatus(newTunnelStatus)
+                interactor.updateTunnelStatus { tunnelStatus in
+                    tunnelStatus.state = .connecting(nil)
+                }
             }
 
             fetchTunnelStatus(tunnel: tunnel) { packetTunnelStatus in
@@ -84,16 +84,17 @@ class MapConnectionStatusOperation: AsyncOperation {
 
             case .disconnecting(.reconnect):
                 logger.debug("Restart the tunnel on disconnect.")
-
-                var newTunnelStatus = TunnelStatus()
-                newTunnelStatus.state = .pendingReconnect
-                interactor.setTunnelStatus(newTunnelStatus)
+                interactor.updateTunnelStatus { tunnelStatus in
+                    tunnelStatus = TunnelStatus()
+                    tunnelStatus.state = .pendingReconnect
+                }
                 interactor.startTunnel()
 
             default:
-                var newTunnelStatus = TunnelStatus()
-                newTunnelStatus.state = .disconnected
-                interactor.setTunnelStatus(newTunnelStatus)
+                interactor.updateTunnelStatus { tunnelStatus in
+                    tunnelStatus = TunnelStatus()
+                    tunnelStatus.state = .disconnected
+                }
             }
 
         case .disconnecting:
@@ -101,15 +102,17 @@ class MapConnectionStatusOperation: AsyncOperation {
             case .disconnecting:
                 break
             default:
-                var newTunnelStatus = TunnelStatus()
-                newTunnelStatus.state = .disconnecting(.nothing)
-                interactor.setTunnelStatus(newTunnelStatus)
+                interactor.updateTunnelStatus { tunnelStatus in
+                    tunnelStatus = TunnelStatus()
+                    tunnelStatus.state = .disconnecting(.nothing)
+                }
             }
 
         case .invalid:
-            var newTunnelStatus = TunnelStatus()
-            newTunnelStatus.state = .disconnected
-            interactor.setTunnelStatus(newTunnelStatus)
+            interactor.updateTunnelStatus { tunnelStatus in
+                tunnelStatus = TunnelStatus()
+                tunnelStatus.state = .disconnected
+            }
 
         @unknown default:
             logger.debug("Unknown NEVPNStatus: \(connectionStatus.rawValue)")
@@ -131,14 +134,13 @@ class MapConnectionStatusOperation: AsyncOperation {
 
             self.dispatchQueue.async {
                 if case let .success(packetTunnelStatus) = completion, !self.isCancelled {
-                    var newTunnelStatus = self.interactor.tunnelStatus
-                    newTunnelStatus.packetTunnelStatus = packetTunnelStatus
+                    self.interactor.updateTunnelStatus { tunnelStatus in
+                        tunnelStatus.packetTunnelStatus = packetTunnelStatus
 
-                    if let newState = mapToState(packetTunnelStatus) {
-                        newTunnelStatus.state = newState
+                        if let newState = mapToState(packetTunnelStatus) {
+                            tunnelStatus.state = newState
+                        }
                     }
-
-                    self.interactor.setTunnelStatus(newTunnelStatus)
                 }
 
                 self.finish()

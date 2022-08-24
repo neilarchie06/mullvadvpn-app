@@ -599,20 +599,16 @@ final class TunnelManager {
         }
     }
 
-    fileprivate func resetTunnelStatus(to state: TunnelState) {
+    fileprivate func setTunnelStatus(_ block: (inout TunnelStatus) -> Void) -> TunnelStatus {
         nslock.lock()
         defer { nslock.unlock() }
 
-        var updatedStatus = _tunnelStatus
-        updatedStatus.reset(to: state)
-        setTunnelStatus(updatedStatus)
-    }
+        var newTunnelStatus = _tunnelStatus
+        block(&newTunnelStatus)
 
-    fileprivate func setTunnelStatus(_ newTunnelStatus: TunnelStatus) {
-        nslock.lock()
-        defer { nslock.unlock() }
-
-        guard _tunnelStatus != newTunnelStatus else { return }
+        guard _tunnelStatus != newTunnelStatus else {
+            return newTunnelStatus
+        }
 
         logger.info("Status: \(newTunnelStatus).")
 
@@ -638,6 +634,8 @@ final class TunnelManager {
                 observer.tunnelManager(self, didUpdateTunnelStatus: newTunnelStatus)
             }
         }
+
+        return newTunnelStatus
     }
 
     fileprivate func setSettings(_ settings: TunnelSettingsV2, persist: Bool) {
@@ -962,8 +960,8 @@ private struct TunnelInteractorProxy: TunnelInteractor {
         return tunnelManager.tunnelStatus
     }
 
-    func setTunnelStatus(_ tunnelStatus: TunnelStatus) {
-        tunnelManager.setTunnelStatus(tunnelStatus)
+    func updateTunnelStatus(_ block: (inout TunnelStatus) -> Void) -> TunnelStatus {
+        return tunnelManager.setTunnelStatus(block)
     }
 
     var isConfigurationLoaded: Bool {

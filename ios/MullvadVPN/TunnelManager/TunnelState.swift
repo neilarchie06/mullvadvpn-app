@@ -27,14 +27,6 @@ struct TunnelStatus: Equatable, CustomStringConvertible {
 
         return s
     }
-
-    /// Resets all fields to their defaults and assigns the next tunnel state.
-    mutating func reset(to newState: TunnelState) {
-        let currentRelay = packetTunnelStatus.tunnelRelay
-        packetTunnelStatus = PacketTunnelStatus()
-        packetTunnelStatus.tunnelRelay = currentRelay
-        state = newState
-    }
 }
 
 /// An enum that describes the tunnel state.

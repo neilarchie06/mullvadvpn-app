@@ -17,7 +17,8 @@ protocol TunnelInteractor {
     // MARK: - Tunnel status
 
     var tunnelStatus: TunnelStatus { get }
-    func setTunnelStatus(_ tunnelStatus: TunnelStatus)
+    @discardableResult func updateTunnelStatus(_ block: (inout TunnelStatus) -> Void)
+        -> TunnelStatus
 
     // MARK: - Configuration
 

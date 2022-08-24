@@ -28,9 +28,9 @@ class StopTunnelOperation: ResultOperation<Void, Error> {
     override func main() {
         switch interactor.tunnelStatus.state {
         case .disconnecting(.reconnect):
-            var tunnelStatus = interactor.tunnelStatus
-            tunnelStatus.state = .disconnecting(.nothing)
-            interactor.setTunnelStatus(tunnelStatus)
+            interactor.updateTunnelStatus { tunnelStatus in
+                tunnelStatus.state = .disconnecting(.nothing)
+            }
 
             finish(completion: .success(()))
 

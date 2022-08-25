@@ -8,13 +8,15 @@
 
 import Foundation
 import Logging
+import protocol Network.IPAddress
 import struct Network.IPv4Address
+import struct Network.IPv6Address
 
 protocol PingerDelegate: AnyObject {
     func pinger(
         _ pinger: Pinger,
-        didReceiveResponseFromSender senderAddress: IPv4Address,
-        sequenceNumber: UInt16
+        didReceiveResponseFromSender senderAddress: IPAddress,
+        icmpHeader: ICMPHeader
     )
 
     func pinger(
@@ -72,15 +74,15 @@ final class Pinger {
             AF_INET,
             SOCK_DGRAM,
             IPPROTO_ICMP,
-            0,
+            CFSocketCallBackType.readCallBack.rawValue,
             { socket, callbackType, address, data, info in
-                guard let info = info, callbackType == .readCallBack else {
+                guard let socket = socket, let info = info, callbackType == .readCallBack else {
                     return
                 }
 
                 let pinger = Unmanaged<Pinger>.fromOpaque(info).takeUnretainedValue()
 
-                pinger.readSocket()
+                pinger.readSocket(socket)
             },
             &context
         ) else {
@@ -138,8 +140,7 @@ final class Pinger {
         let sequenceNumber = nextSequenceNumber()
         let packetData = Self.createICMPPacket(
             identifier: identifier,
-            sequenceNumber: sequenceNumber,
-            payload: nil
+            sequenceNumber: sequenceNumber
         )
 
         let bytesSent = packetData.withUnsafeBytes { dataBuffer -> Int in
@@ -177,14 +178,15 @@ final class Pinger {
         return nextSequenceNumber
     }
 
-    private func readSocket() {
+    private func readSocket(_ socket: CFSocket) {
         let bufferSize = 65535
         var buffer = [UInt8](repeating: 0, count: bufferSize)
 
         var address = sockaddr()
         var addressLength = socklen_t(MemoryLayout.size(ofValue: address))
+
         let bytesRead = recvfrom(
-            CFSocketGetNative(socket!),
+            CFSocketGetNative(socket),
             &buffer,
             bufferSize,
             0,
@@ -197,35 +199,68 @@ final class Pinger {
                 throw Error.receivePacket(errno)
             }
 
-            let senderAddress = try withUnsafeBytes(of: &address) { buffer -> IPv4Address in
-                var saddr = buffer.load(as: sockaddr_in.self)
-                let addrData = Data(
-                    bytes: &saddr.sin_addr.s_addr,
-                    count: MemoryLayout<in_addr_t>.size
-                )
-
-                guard let ipv4Address = IPv4Address(addrData, nil) else {
-                    throw Error.parseIPv4Address
-                }
-
-                return ipv4Address
+            guard let icmpHeader = try parseICMPResponse(&buffer[...bytesRead]) else {
+                return
             }
 
-            let ipv4PacketData = Data(bytes: &buffer, count: bytesRead)
-            let responseSequence = try validatePacket(ipv4PacketData: ipv4PacketData)
+            guard let sender = Self.makeIPAddress(from: address) else {
+                throw Error.parseIPAddress
+            }
 
-            stateLock.lock()
-            _delegate?.pinger(
+            delegate?.pinger(
                 self,
-                didReceiveResponseFromSender: senderAddress,
-                sequenceNumber: responseSequence
+                didReceiveResponseFromSender: sender,
+                icmpHeader: icmpHeader
             )
-            stateLock.unlock()
         } catch {
-            stateLock.lock()
-            _delegate?.pinger(self, didFailToReadResponseWithError: error)
-            stateLock.unlock()
+            delegate?.pinger(self, didFailToReadResponseWithError: error)
         }
+    }
+
+    private func parseICMPResponse(_ ipv4PacketData: inout ArraySlice<UInt8>) throws
+        -> ICMPHeader?
+    {
+        // Check IP packet size.
+        guard ipv4PacketData.count >= MemoryLayout<IPv4Header>.size else {
+            throw Error.malformedResponse
+        }
+
+        // Verify IPv4 header.
+        let ipv4Header = ipv4PacketData.withUnsafeBytes { $0.load(as: IPv4Header.self) }
+        let payloadLength = ipv4PacketData.count - ipv4Header.headerLength
+
+        guard payloadLength >= MemoryLayout<ICMPHeader>.size, ipv4Header.isIPv4Version else {
+            throw Error.malformedResponse
+        }
+        var payloadData = ipv4PacketData.dropFirst(ipv4Header.headerLength)
+
+        // Parse ICMP header.
+        let icmpHeaderPointer = payloadData.withUnsafeMutableBytes { bufferPointer in
+            return bufferPointer.baseAddress!.assumingMemoryBound(to: ICMPHeader.self)
+        }
+
+        // Check if ICMP response belongs to this process.
+        guard icmpHeaderPointer.pointee.identifier.bigEndian == identifier else {
+            return nil
+        }
+
+        // Verify ICMP type.
+        guard icmpHeaderPointer.pointee.type == ICMP_ECHOREPLY else {
+            throw Error.malformedResponse
+        }
+
+        // Verify ICMP checksum.
+        let serverChecksum = icmpHeaderPointer.pointee.checksum
+        icmpHeaderPointer.pointee.checksum = 0
+        if in_chksum(payloadData) != serverChecksum {
+            throw Error.malformedResponse
+        }
+
+        var icmpHeader = icmpHeaderPointer.pointee
+        icmpHeader.identifier = icmpHeader.identifier.bigEndian
+        icmpHeader.sequenceNumber = icmpHeader.sequenceNumber.bigEndian
+        icmpHeader.checksum = icmpHeader.checksum.bigEndian
+        return icmpHeader
     }
 
     private func bindSocket(_ socket: CFSocket, to interfaceName: String) throws {
@@ -252,79 +287,46 @@ final class Pinger {
         }
     }
 
-    private func getIPv4PacketPayload(data: Data) throws -> Data {
-        let minimumPacketSize = MemoryLayout<IPv4Header>.size + MemoryLayout<ICMPHeader>.size
-        guard data.count >= minimumPacketSize else {
-            throw Error.parseIPv4Packet
-        }
-
-        let ipv4Header = data.withUnsafeBytes { $0.load(as: IPv4Header.self) }
-        let versionAndHeaderLength = Int(ipv4Header.versionAndHeaderLength)
-        let proto = ipv4Header.protocol
-
-        guard (versionAndHeaderLength & 0xF0) == 0x40, proto == IPPROTO_ICMP else {
-            throw Error.parseIPv4Packet
-        }
-
-        let ipHeaderLength = (versionAndHeaderLength & 0x0F) * MemoryLayout<UInt32>.size
-
-        return data[ipHeaderLength...]
-    }
-
-    private func validatePacket(ipv4PacketData: Data) throws -> UInt16 {
-        var payload = try getIPv4PacketPayload(data: ipv4PacketData)
-
-        let receivedChecksum = payload.withUnsafeMutableBytes { bufferPointer -> UInt16 in
-            let checksum = bufferPointer.load(fromByteOffset: 2, as: UInt16.self)
-            bufferPointer.storeBytes(of: UInt16.zero, toByteOffset: 2, as: UInt16.self)
-            return checksum
-        }
-
-        let computedChecksum = in_chksum(payload)
-        guard receivedChecksum == computedChecksum else {
-            throw Error.invalidChecksum
-        }
-
-        return try payload.withUnsafeBytes { buffer in
-            let identifier = buffer.load(fromByteOffset: 4, as: UInt16.self).bigEndian
-            let sequenceNumber = buffer.load(fromByteOffset: 6, as: UInt16.self).bigEndian
-
-            guard identifier == self.identifier else {
-                throw Error.invalidIdentifier
-            }
-
-            return sequenceNumber
-        }
-    }
-
-    private class func createICMPPacket(
-        identifier: UInt16,
-        sequenceNumber: UInt16,
-        payload: Data?
-    ) -> Data {
-        let header = ICMPHeader(
+    private class func createICMPPacket(identifier: UInt16, sequenceNumber: UInt16) -> Data {
+        var header = ICMPHeader(
             type: UInt8(ICMP_ECHO),
             code: 0,
             checksum: 0,
             identifier: identifier.bigEndian,
             sequenceNumber: sequenceNumber.bigEndian
         )
+        header.checksum = withUnsafeBytes(of: &header) { in_chksum($0) }
 
-        var data = withUnsafeBytes(of: header) { Data($0) }
-        if let payload = payload {
-            data.append(contentsOf: payload)
+        return withUnsafeBytes(of: &header) { Data($0) }
+    }
+
+    private class func makeIPAddress(from sa: sockaddr) -> IPAddress? {
+        if sa.sa_family == AF_INET {
+            return withUnsafeBytes(of: sa) { buffer -> IPAddress? in
+                guard let boundPointer = buffer.bindMemory(to: sockaddr_in.self).baseAddress else {
+                    return nil
+                }
+
+                var saddr = boundPointer.pointee
+                let data = Data(bytes: &saddr.sin_addr, count: MemoryLayout<in_addr>.size)
+
+                return IPv4Address(data, nil)
+            }
         }
 
-        let checksum = in_chksum(data)
+        if sa.sa_family == AF_INET6 {
+            return withUnsafeBytes(of: sa) { buffer in
+                guard let boundPointer = buffer.bindMemory(to: sockaddr_in6.self).baseAddress else {
+                    return nil
+                }
+                var saddr6 = boundPointer.pointee
+                let data = Data(bytes: &saddr6.sin6_addr, count: MemoryLayout<in6_addr>.size)
 
-        // Inject computed checksum into the packet.
-        data.withUnsafeMutableBytes { buffer in
-            let icmpHeaderPointer = buffer.baseAddress?.assumingMemoryBound(to: ICMPHeader.self)
-
-            icmpHeaderPointer?.pointee.checksum = checksum
+                return IPv6Address(data)
+            }
         }
 
-        return data
+        return nil
     }
 }
 
@@ -351,17 +353,11 @@ extension Pinger {
         /// Failure to receive packet. Contains the `errno`.
         case receivePacket(Int32)
 
-        /// Invalid checksum when matching the echo reply.
-        case invalidChecksum
+        /// Malformed response.
+        case malformedResponse
 
-        /// Invalid ICMP identifier.
-        case invalidIdentifier
-
-        /// Failure to parse IPv4 packet.
-        case parseIPv4Packet
-
-        /// Failure to parse IPv4 address.
-        case parseIPv4Address
+        /// Failure to parse IP address.
+        case parseIPAddress
 
         var errorDescription: String? {
             switch self {
@@ -379,20 +375,16 @@ extension Pinger {
                 return "Failure to send packet (errno: \(code))."
             case let .receivePacket(code):
                 return "Failure to receive packet (errno: \(code))."
-            case .invalidChecksum:
-                return "Invalid checksum."
-            case .invalidIdentifier:
-                return "Invalid client identifier."
-            case .parseIPv4Packet:
-                return "Failure to read IPv4 packet."
-            case .parseIPv4Address:
-                return "Failure to parse IPv4 address."
+            case .malformedResponse:
+                return "Malformed response."
+            case .parseIPAddress:
+                return "Failed to parse IP address."
             }
         }
     }
 }
 
-private func in_chksum(_ data: Data) -> UInt16 {
+private func in_chksum<S>(_ data: S) -> UInt16 where S: Sequence, S.Element == UInt8 {
     let words = sequence(state: data.makeIterator()) { iterator in
         return iterator.next().map { byte in
             return iterator.next().map { nextByte in
@@ -406,4 +398,16 @@ private func in_chksum(_ data: Data) -> UInt16 {
     let sum = words.reduce(0, &+)
 
     return ~sum
+}
+
+private extension IPv4Header {
+    /// Returns IPv4 header length.
+    var headerLength: Int {
+        return Int(versionAndHeaderLength & 0x0F) * MemoryLayout<UInt32>.size
+    }
+
+    /// Returns `true` if version header indicates IPv4.
+    var isIPv4Version: Bool {
+        return (versionAndHeaderLength & 0xF0) == 0x40
+    }
 }

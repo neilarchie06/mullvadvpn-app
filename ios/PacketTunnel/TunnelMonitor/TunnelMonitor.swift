@@ -28,7 +28,7 @@ private let receiveBytesTimeout: TimeInterval = 5
 /// Interval for checking connectivity status.
 private let connectivityCheckInterval: TimeInterval = 1
 
-final class TunnelMonitor {
+final class TunnelMonitor: PingerDelegate {
     private var state: State = .stopped
 
     private let adapter: WireGuardAdapter
@@ -59,9 +59,10 @@ final class TunnelMonitor {
         }
     }
 
-    init(queue: DispatchQueue, adapter: WireGuardAdapter) {
+    init(queue: DispatchQueue, adapter anAdapter: WireGuardAdapter) {
         delegateQueue = queue
-        self.adapter = adapter
+        adapter = anAdapter
+        pinger.delegate = self
     }
 
     deinit {
@@ -78,6 +79,20 @@ final class TunnelMonitor {
         internalQueue.async {
             self.stopNoQueue()
         }
+    }
+
+    // MARK: - PingerDelegate
+
+    func pinger(
+        _ pinger: Pinger,
+        didReceiveResponseFromSender senderAddress: IPAddress,
+        icmpHeader: ICMPHeader
+    ) {
+        logger.debug("ICMP response: \(icmpHeader.sequenceNumber) from \(senderAddress)")
+    }
+
+    func pinger(_ pinger: Pinger, didFailToReadResponseWithError error: Error) {
+        logger.error(chainedError: AnyChainedError(error), message: "Failed to read ICMP response.")
     }
 
     // MARK: - Private
@@ -272,10 +287,10 @@ final class TunnelMonitor {
             return
         }
 
-        logger.debug("Send ping.")
-
         do {
-            _ = try pinger.send(to: probeAddress)
+            let sequenceNumber = try pinger.send(to: probeAddress)
+
+            logger.debug("Send ping (sequence: \(sequenceNumber)).")
 
             if initialPingTimestamp == nil {
                 initialPingTimestamp = now

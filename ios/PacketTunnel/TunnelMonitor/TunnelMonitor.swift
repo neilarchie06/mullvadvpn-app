@@ -91,8 +91,11 @@ final class TunnelMonitor: PingerDelegate {
         logger.debug("ICMP response: \(icmpHeader.sequenceNumber) from \(senderAddress)")
     }
 
-    func pinger(_ pinger: Pinger, didFailToReadResponseWithError error: Error) {
-        logger.error(chainedError: AnyChainedError(error), message: "Failed to read ICMP response.")
+    func pinger(_ pinger: Pinger, didFailWithError error: Error) {
+        logger.error(
+            chainedError: AnyChainedError(error),
+            message: "Failed to parse ICMP response."
+        )
     }
 
     // MARK: - Private

@@ -108,6 +108,7 @@ msgstr ""
 msgid "Connecting"
 msgstr ""
 
+#. Creating a secure connection that isn't breakable by quantum computers.
 msgid "CREATING QUANTUM SECURE CONNECTION"
 msgstr ""
 
@@ -147,6 +148,9 @@ msgstr ""
 msgid "Filter"
 msgstr ""
 
+msgid "Go to System Settings"
+msgstr ""
+
 #. This is a button which closes a dialog.
 msgid "Got it!"
 msgstr ""
@@ -184,6 +188,7 @@ msgstr ""
 msgid "Open URL"
 msgstr ""
 
+#. The connection is secure and isn't breakable by quantum computers.
 msgid "QUANTUM SECURE CONNECTION"
 msgstr ""
 
@@ -210,6 +215,9 @@ msgstr ""
 
 #. Warning text in a dialog that is displayed after a setting is toggled.
 msgid "This setting increases latency. Use only if needed."
+msgstr ""
+
+msgid "Troubleshoot"
 msgstr ""
 
 msgid "Try a different search."
@@ -599,6 +607,10 @@ msgctxt "in-app-notifications"
 msgid "Please quit and restart the app."
 msgstr ""
 
+msgctxt "in-app-notifications"
+msgid "Send problem report"
+msgstr ""
+
 #. The in-app banner displayed to the user when the app beta update is
 #. available.
 #. Available placeholders:
@@ -617,6 +629,10 @@ msgstr ""
 
 msgctxt "launch-view"
 msgid "Connecting to Mullvad system service..."
+msgstr ""
+
+msgctxt "launch-view"
+msgid "Permission for the Mullvad VPN service has been revoked. Please go to System Settings and allow Mullvad VPN under the “Allow in the Background” setting."
 msgstr ""
 
 #. This is a warning message shown when the app is blocking the users
@@ -768,7 +784,11 @@ msgid "Disconnected and unsecure"
 msgstr ""
 
 msgctxt "notifications"
-msgid "No servers in your selected location match your settings."
+msgid "Lockdown mode active, connection blocked"
+msgstr ""
+
+msgctxt "notifications"
+msgid "No servers match your settings, try changing server or other settings."
 msgstr ""
 
 msgctxt "notifications"
@@ -784,7 +804,7 @@ msgid "Unable to apply firewall rules."
 msgstr ""
 
 msgctxt "notifications"
-msgid "Unable to apply firewall rules. Try disabling any third-party antivirus or security software."
+msgid "Unable to apply firewall rules. Try temporarily disabling any third-party antivirus or security software."
 msgstr ""
 
 msgctxt "notifications"
@@ -796,7 +816,7 @@ msgid "Unable to block all network traffic. Please troubleshoot or send a proble
 msgstr ""
 
 msgctxt "notifications"
-msgid "Unable to block all network traffic. Try disabling any third-party antivirus or security software or send a problem report."
+msgid "Unable to block all network traffic. Try temporarily disabling any third-party antivirus or security software or send a problem report."
 msgstr ""
 
 msgctxt "notifications"
@@ -1220,6 +1240,46 @@ msgctxt "tray-icon-tooltip"
 msgid "Connecting. %(location)s"
 msgstr ""
 
+msgctxt "troubleshoot"
+msgid "If these steps do not work please send a problem report."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Make sure you have NF tables support."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "This can happen because the kernel is old, or if you have removed a kernel."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "This error can happen when something other than Mullvad is actively updating the DNS."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Try reconnecting."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Try restarting your device."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Try to turn Wi-Fi Calling off in the FaceTime app settings and restart the Mac."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Unable to communicate with Mullvad kernel driver."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Uninstall or disable other DNS, networking and ads/website blocking apps."
+msgstr ""
+
+msgctxt "troubleshoot"
+msgid "Update your kernel."
+msgstr ""
+
 msgctxt "tunnel-control"
 msgid "Secure my connection"
 msgstr ""
@@ -1467,6 +1527,10 @@ msgid "IP version"
 msgstr ""
 
 msgctxt "wireguard-settings-view"
+msgid "It does this by performing an extra key exchange using a quantum safe algorithm and mixing the result into WireGuard’s regular encryption. This extra step uses approximately 500 kiB of traffic every time a new tunnel is established."
+msgstr ""
+
+msgctxt "wireguard-settings-view"
 msgid "MTU"
 msgstr ""
 
@@ -1484,6 +1548,13 @@ msgstr ""
 
 msgctxt "wireguard-settings-view"
 msgid "Port"
+msgstr ""
+
+#. The title for the WireGuard quantum resistance selector. This setting
+#. makes the cryptography resistant to the future abilities of quantum
+#. computers.
+msgctxt "wireguard-settings-view"
+msgid "Quantum-resistant tunnel"
 msgstr ""
 
 #. The hint displayed below the WireGuard MTU input field.
@@ -1508,6 +1579,10 @@ msgstr ""
 #. %(wireguard)s - Will be replaced with the string "WireGuard"
 msgctxt "wireguard-settings-view"
 msgid "This allows access to %(wireguard)s for devices that only support IPv6."
+msgstr ""
+
+msgctxt "wireguard-settings-view"
+msgid "This feature makes the WireGuard tunnel resistant to potential attacks from quantum computers."
 msgstr ""
 
 msgctxt "wireguard-settings-view"

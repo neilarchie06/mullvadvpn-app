@@ -3,23 +3,20 @@ name: Android - Build and test
 on:
   pull_request:
     paths:
-      - .github/workflows/android-app.yml
-      - android/**
-      - mullvad-api/**
-      - mullvad-daemon/**
-      - mullvad-jni/**
-      - mullvad-paths/**
-      - mullvad-problem-report/**
-      - mullvad-types/**
-      - talpid-core/**
-      - talpid-platform-metadata/**
-      - talpid-types/**
-      - talpid-types/**
-      - wireguard/**
-      - Cargo.toml
-      - build-apk.sh
-      - update-api-metadata.sh
-      - update-version-metadata.sh
+      - '**'
+      - '!.github/workflows/**'
+      - '.github/workflows/android-app.yml'
+      - '!audits/**'
+      - '!ci/**'
+      - '!dist-assets/**'
+      - '!docs/**'
+      - '!graphics/**'
+      - '!gui/**'
+      - '!ios/**'
+      - '!scripts/**'
+      - '!windows/**'
+      - '!**/**.md'
+
   workflow_dispatch:
     inputs:
       override_container_image:
@@ -31,6 +28,7 @@ on:
     branches: [master]
 jobs:
   prepare:
+    name: Prepare
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -50,6 +48,7 @@ jobs:
       container_image: ${{ env.inner_container_image }}
 
   build:
+    name: Build app and run unit tests
     needs: prepare
     runs-on: ubuntu-latest
     container:
@@ -79,8 +78,7 @@ jobs:
         with:
           path: |
             ./android/app/build/extraJni
-            ./dist-assets/relays.json
-            ./dist-assets/api-ip-address.txt
+            ./build/relays.json
           key: android-native-libs-${{ runner.os }}-x86_64-${{ steps.native-lib-cache-hash.outputs.native_lib_hash}}
 
       - name: Build native libraries
@@ -96,8 +94,8 @@ jobs:
           STRIPPED_LIB_PATH="./android/app/build/extraJni/$ABI/libmullvad_jni.so"
           NDK_TOOLCHAIN_STRIP_TOOL="$NDK_TOOLCHAIN_DIR/x86_64-linux-android-strip"
           ./wireguard/build-wireguard-go.sh --android --no-docker
-          cargo build --target $TARGET --verbose --package mullvad-jni
-          cargo run --bin relay_list > dist-assets/relays.json
+          cargo build --target $TARGET --verbose --package mullvad-jni --features api-override
+          cargo run --bin relay_list > build/relays.json
           $NDK_TOOLCHAIN_STRIP_TOOL --strip-debug --strip-unneeded -o "$STRIPPED_LIB_PATH" "$UNSTRIPPED_LIB_PATH"
 
       - name: Build Android app
@@ -117,7 +115,18 @@ jobs:
           build-root-directory: android
           execution-only-caches: true
 
-      - name: Assemble instrumented test apk
+      # Running the AGP lint here rather than in the separate lint workflow (android-ktlint.yml)
+      # since it's easier to make use of the running container, cache and previously ran tasks.
+      - name: Run AGP lint
+        uses: burrunan/gradle-cache-action@v1
+        with:
+          job-id: jdk11
+          arguments: lint
+          gradle-version: wrapper
+          build-root-directory: android
+          execution-only-caches: true
+
+      - name: Assemble instrumented test apk (app)
         uses: burrunan/gradle-cache-action@v1
         with:
           job-id: jdk11
@@ -126,21 +135,34 @@ jobs:
           build-root-directory: android
           execution-only-caches: true
 
+      - name: Assemble instrumented test apk (mockapi)
+        uses: burrunan/gradle-cache-action@v1
+        with:
+          job-id: jdk11
+          arguments: :test:mockapi:assemble
+          gradle-version: wrapper
+          build-root-directory: android
+          execution-only-caches: true
+
       - name: Upload apks
         uses: actions/upload-artifact@v3
         with:
           name: apks
-          path: android/app/build/outputs/apk
+          path: |
+            android/app/build/outputs/apk
+            android/test/mockapi/build/outputs/apk
           if-no-files-found: error
           retention-days: 1
 
   instrumented-tests:
-    name: Instrumented tests
-    runs-on: macos-latest
+    name: Run instrumented tests
+    runs-on: [self-hosted, android-emulator]
     timeout-minutes: 30
     needs: [build]
     strategy:
       fail-fast: false
+      matrix:
+        test-type: [app, mockapi]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -148,44 +170,20 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: apks
-          path: android/app/build/outputs/apk
+          path: android
 
-      - name: AVD cache
-        uses: actions/cache@v3
-        id: avd-cache
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: emulator-api-33
-
-      - name: Create avd and generate snapshot
-        uses: reactivecircus/android-emulator-runner@v2
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        with:
-          force-avd-creation: false
-          api-level: 33
-          target: google_apis
-          arch: x86_64
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-            -camera-back none
-          disable-animations: true
-          profile: pixel
-          script: echo "Generated AVD snapshot for caching."
+      - name: Run instrumented test script
+        shell: bash -ieo pipefail {0}
         env:
-          API_LEVEL: 33
+          AUTO_FETCH_TEST_HELPER_APKS: true
+        run: |
+          ./android/scripts/run-instrumented-tests.sh ${{ matrix.test-type }}
 
-      - name: Run Android instrumented tests
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Upload instrumentation report (${{ matrix.test-type }})
+        uses: actions/upload-artifact@v3
+        if: always()
         with:
-          force-avd-creation: false
-          api-level: 33
-          target: google_apis
-          arch: x86_64
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect
-            -noaudio -no-boot-anim -camera-back none
-          disable-animations: true
-          profile: pixel
-          script: ./android/scripts/run-instrumented-tests.sh app
-        env:
-          API_LEVEL: 33
+          name: ${{ matrix.test-type }}-instrumentation-report
+          path: /tmp/mullvad-${{ matrix.test-type }}-instrumentation-report
+          if-no-files-found: ignore
+          retention-days: 1

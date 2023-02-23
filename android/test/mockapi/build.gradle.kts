@@ -17,7 +17,6 @@ android {
         testInstrumentationRunnerArguments.putAll(
             mapOf(
                 "clearPackageData" to "true",
-                "useTestStorageService" to "true"
             )
         )
     }
@@ -33,6 +32,11 @@ android {
 
     kotlinOptions {
         jvmTarget = Versions.jvmTarget
+    }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
     }
 }
 
@@ -55,6 +59,7 @@ dependencies {
     implementation(Dependencies.AndroidX.testRunner)
     implementation(Dependencies.AndroidX.testRules)
     implementation(Dependencies.AndroidX.testUiAutomator)
+    implementation(Dependencies.jodaTime)
     implementation(Dependencies.Kotlin.stdlib)
     implementation(Dependencies.mockkWebserver)
 

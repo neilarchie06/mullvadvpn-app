@@ -42,6 +42,12 @@ android {
             name = "ALWAYS_SHOW_CHANGELOG",
             value = alwaysShowChangelog
         )
+
+        lint {
+            baseline = file("lint-baseline.xml")
+            abortOnError = true
+            warningsAsErrors = true
+        }
     }
 
     if (keystorePropertiesFile.exists()) {
@@ -56,16 +62,25 @@ android {
 
         buildTypes {
             getByName("release") {
-                isMinifyEnabled = false
                 signingConfig = signingConfigs.getByName("release")
             }
         }
     }
 
     buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+
         create("fdroid") {
             initWith(buildTypes.getByName("release"))
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = null
             matchingFallbacks += "release"
         }
@@ -153,7 +168,7 @@ configure<org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension> {
 }
 
 tasks.register("copyExtraAssets", Copy::class) {
-    from("$repoRootPath/dist-assets")
+    from("$repoRootPath/build")
     include("relays.json")
     into(extraAssetsDirectory)
 }

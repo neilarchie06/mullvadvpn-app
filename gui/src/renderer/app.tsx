@@ -125,6 +125,10 @@ export default class AppRenderer {
       this.setIsPerformingPostUpgrade(isPerformingPostUpgrade);
     });
 
+    IpcRendererEventChannel.daemon.listenDaemonAllowed((daemonAllowed) => {
+      this.reduxActions.userInterface.setDaemonAllowed(daemonAllowed);
+    });
+
     IpcRendererEventChannel.account.listen((newAccountData?: IAccountData) => {
       this.setAccountExpiry(newAccountData?.expiry);
     });
@@ -203,6 +207,10 @@ export default class AppRenderer {
     this.setAccountExpiry(initialState.accountData?.expiry);
     this.setSettings(initialState.settings);
     this.setIsPerformingPostUpgrade(initialState.isPerformingPostUpgrade);
+
+    if (initialState.daemonAllowed !== undefined) {
+      this.reduxActions.userInterface.setDaemonAllowed(initialState.daemonAllowed);
+    }
 
     if (initialState.deviceState) {
       const deviceState = initialState.deviceState;
@@ -456,6 +464,12 @@ export default class AppRenderer {
     await IpcRendererEventChannel.settings.setWireguardMtu(mtu);
   };
 
+  public setWireguardQuantumResistant = async (quantumResistant?: boolean) => {
+    const actions = this.reduxActions;
+    actions.settings.updateWireguardQuantumResistant(quantumResistant);
+    await IpcRendererEventChannel.settings.setWireguardQuantumResistant(quantumResistant);
+  };
+
   public setAutoStart = (autoStart: boolean): Promise<void> => {
     this.storeAutoStart(autoStart);
 
@@ -468,6 +482,10 @@ export default class AppRenderer {
 
   public removeSplitTunnelingApplication(application: IWindowsApplication) {
     void IpcRendererEventChannel.windowsSplitTunneling.removeApplication(application);
+  }
+
+  public async showLaunchDaemonSettings() {
+    await IpcRendererEventChannel.app.showLaunchDaemonSettings();
   }
 
   public async sendProblemReport(
@@ -617,6 +635,7 @@ export default class AppRenderer {
   private onDaemonConnected() {
     this.connectedToDaemon = true;
     this.reduxActions.userInterface.setConnectedToDaemon(true);
+    this.reduxActions.userInterface.setDaemonAllowed(true);
     this.resetNavigation();
   }
 
@@ -733,6 +752,9 @@ export default class AppRenderer {
     reduxSettings.updateShowBetaReleases(newSettings.showBetaReleases);
     reduxSettings.updateOpenVpnMssfix(newSettings.tunnelOptions.openvpn.mssfix);
     reduxSettings.updateWireguardMtu(newSettings.tunnelOptions.wireguard.mtu);
+    reduxSettings.updateWireguardQuantumResistant(
+      newSettings.tunnelOptions.wireguard.quantumResistant,
+    );
     reduxSettings.updateBridgeState(newSettings.bridgeState);
     reduxSettings.updateDnsOptions(newSettings.tunnelOptions.dns);
     reduxSettings.updateSplitTunnelingState(newSettings.splitTunnel.enableExclusions);
